@@ -7,7 +7,9 @@ version = project.mod_version
 group = project.maven_group
 
 base {
-    archivesName = project.archives_base_name
+    // Имя jar в стиле Modrinth: lucariomorph-fabric-1.21.7-1.1.7.jar
+    // (Gradle сам добавит "-<mod_version>" к archivesName)
+    archivesName = "${project.archives_base_name}-fabric-${project.minecraft_version}"
 }
 
 repositories {

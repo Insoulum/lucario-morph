@@ -13,7 +13,7 @@
 ## Установка
 Нужен Minecraft 1.21.7, Fabric Loader ≥ 0.16.14 и [Fabric API](https://modrinth.com/mod/fabric-api) 0.129.0+1.21.7.
 1. Установите Fabric Loader через официальный установщик: https://fabricmc.net/use
-2. Положите `lucariomod-1.1.7.jar` и Fabric API в папку `mods`.
+2. Положите `lucariomorph-fabric-1.21.7-1.1.7.jar` и Fabric API в папку `mods`.
 3. Мод нужен **и клиенту, и серверу** — на сервере регистрируются команды `/lucario`, `/riolu`, `/mega`
    и работает синхронизация внешности между игроками.
 
@@ -36,7 +36,7 @@ lucarioholiday, lucariomartialarts, lucariomega, lucariopmd, lucariopsmd, lucari
 
 ## Сборка из исходников
 Нужен JDK 21 и интернет (при первой сборке Gradle скачает Minecraft/Fabric и маппинги).
-1. `./gradlew build` → готовый мод: `build/libs/lucariomod-<версия>.jar`
+1. `./gradlew build` → готовый мод: `build/libs/lucariomorph-fabric-<версия Minecraft>-<версия мода>.jar`
    (версия берётся из `gradle.properties`; для проверки без установки: `./gradlew runClient`).
 2. Перед сборкой сверьте версии в `gradle.properties` со страницей https://fabricmc.net/develop
    (особенно `yarn_mappings`).
