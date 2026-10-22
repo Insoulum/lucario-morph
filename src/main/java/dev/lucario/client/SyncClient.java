@@ -35,6 +35,9 @@ import java.util.concurrent.atomic.AtomicInteger;
  *   <li>клиент публикует свой образ (UUID → вариант) на все зеркала из конфига — при смене
  *       образа и при входе в мир; если зеркала в тот момент были недоступны, публикация
  *       повторяется раз в 30 секунд, пока не дойдёт;</li>
+ *   <li>раз в {@code heartbeatMinutes} минут клиент тихо перепубликует текущий образ
+ *       («пульс»), чтобы запись не протухла на зеркалах с коротким TTL (записи без
+ *       обновлений считаются брошенными и удаляются); 0 — выключить;</li>
  *   <li>раз в {@code syncIntervalSeconds} секунд клиент запрашивает образы всех игроков,
  *       которые сейчас на сервере, и обновляет локальный кэш {@link ClientMorphs};</li>
  *   <li>если игрок снял образ, сервис возвращает для него пустоту — кэш очищается.</li>
@@ -65,6 +68,8 @@ public final class SyncClient {
     /** Зеркало, которое последним успешно ответило — пробуем его первым. */
     private static volatile String preferredMirror = null;
     private static long nextCycleMs = 0L;
+    /** Следующий «пульс» — тихая перепубликация текущего образа (мс epoch; 0 = расписание не начато). */
+    private static volatile long nextHeartbeatMs = 0L;
     private static final AtomicBoolean lastCycleFailed = new AtomicBoolean(false);
     private static volatile long lastPublishFailLogMs = 0L;
     /** Флаг «при входе в мир надо применить запомненный образ» (когда игрок заспавнится). */
@@ -123,9 +128,15 @@ public final class SyncClient {
                     } else {
                         ok.incrementAndGet();
                     }
-                    // Ответили все зеркала: если хоть кто-то промахнулся — назначаем ретрай
-                    if (ok.get() + failed.get() == total && failed.get() > 0) {
-                        nextPublishAttemptMs = System.currentTimeMillis() + RETRY_BACKOFF_MS;
+                    // Ответили все зеркала: успех — снимаем с ретрая; иначе назначаем ретрай.
+                    // Сравнение с pendingPublish нужно, чтобы не снять с ретрая более свежую
+                    // публикацию (игрок мог сменить образ, пока этот запрос летел).
+                    if (ok.get() + failed.get() == total) {
+                        if (failed.get() > 0) {
+                            nextPublishAttemptMs = System.currentTimeMillis() + RETRY_BACKOFF_MS;
+                        } else if (key.equals(pendingPublish)) {
+                            pendingPublish = null; // доставлено во все зеркала
+                        }
                     }
                 });
             } catch (Exception e) {
@@ -156,6 +167,7 @@ public final class SyncClient {
     public static void onJoin() {
         pendingApply = true;
         nextCycleMs = 0L; // первый опрос — как можно раньше
+        nextHeartbeatMs = 0L; // расписание «пульса» начнётся заново (после публикации при входе)
     }
 
     /** Вызывается каждый клиентский тик. */
@@ -185,6 +197,25 @@ public final class SyncClient {
 
         if (!cfg.syncEnabled || cfg.serviceUrls.isEmpty()) return;
         long now = System.currentTimeMillis();
+
+        // «Пульс»: раз в heartbeatMinutes минут тихо перепубликуем текущий образ,
+        // чтобы запись не протухла на зеркалах с коротким TTL (0 — выключено).
+        // Упало — не страшно, повторим на следующем такте; ретраи тут не нужны.
+        // Такт пропускаем, если уже идёт допубликация (pendingPublish) — не дублируем PUT.
+        int hb = cfg.heartbeatMinutes == null ? 0 : cfg.heartbeatMinutes;
+        if (hb > 0) {
+            if (nextHeartbeatMs == 0L) {
+                nextHeartbeatMs = now + hb * 60_000L; // старт расписания после публикации при входе
+            } else if (now >= nextHeartbeatMs) {
+                nextHeartbeatMs = now + hb * 60_000L;
+                UUID self = selfUuid();
+                String current = self == null ? null : ClientMorphs.get(self);
+                if (current != null && !current.isEmpty() && pendingPublish == null) {
+                    doPublish(current);
+                }
+            }
+        }
+
         if (now < nextCycleMs) return;
         nextCycleMs = now + cfg.syncIntervalSeconds * 1000L;
 

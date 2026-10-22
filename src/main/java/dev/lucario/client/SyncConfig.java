@@ -43,6 +43,15 @@ public final class SyncConfig {
     public Boolean autoAuth = Boolean.TRUE;
     /** Как часто (в секундах) проверять образы игроков на сервере. Минимум 2. */
     public int syncIntervalSeconds = 5;
+    /**
+     * «Пульс» записи: раз в столько минут клиент тихо перепубликует текущий образ на
+     * зеркала, чтобы запись не протухла на сервисах с коротким TTL (записи без
+     * обновлений считаются брошенными и удаляются — например, мод сняли с клиента).
+     * 0 — выключить. По умолчанию 15 минут — уверенно покрывает зеркала с TTL от часа.
+     * Обёртка Integer (а не примитив): у конфигов от 1.4.1 этого поля нет, а Gson через
+     * Unsafe заполняет отсутствующие примитивы нулём — потеряли бы значение по умолчанию.
+     */
+    public Integer heartbeatMinutes = Integer.valueOf(15);
     /** Зеркала сервиса синхронизации. Публикация идёт во все, чтение — с первого ответившего. */
     public List<String> serviceUrls = new ArrayList<>(List.of(DEFAULT_SERVICE));
     /** Образ игрока (без него пришлось бы вводить /lucario при каждом входе). */
@@ -84,6 +93,7 @@ public final class SyncConfig {
                     cfg.rememberVariant = loaded.rememberVariant;
                     if (loaded.autoAuth != null) cfg.autoAuth = loaded.autoAuth;
                     cfg.syncIntervalSeconds = loaded.syncIntervalSeconds;
+                    if (loaded.heartbeatMinutes != null) cfg.heartbeatMinutes = loaded.heartbeatMinutes;
                     cfg.lastVariant = loaded.lastVariant == null ? "" : loaded.lastVariant;
                     if (loaded.serviceUrls != null && !loaded.serviceUrls.isEmpty()) {
                         cfg.serviceUrls = new ArrayList<>(loaded.serviceUrls);
@@ -104,6 +114,8 @@ public final class SyncConfig {
         cfg.serviceUrls.removeIf(String::isEmpty);
         if (cfg.serviceUrls.isEmpty()) cfg.serviceUrls = new ArrayList<>(List.of(DEFAULT_SERVICE));
         if (cfg.syncIntervalSeconds < 2) cfg.syncIntervalSeconds = 2;
+        if (cfg.heartbeatMinutes == null) cfg.heartbeatMinutes = 15;
+        if (cfg.heartbeatMinutes < 0) cfg.heartbeatMinutes = 0;   // отрицательное = выключено
         if (cfg.autoAuth == null) cfg.autoAuth = Boolean.TRUE;
         if (!cfg.lastVariant.isEmpty() && !Variants.isValid(cfg.lastVariant)) cfg.lastVariant = "";
         // Токены: ключи приводим к тому же виду, что и serviceUrls (без хвостового «/»)
