@@ -57,8 +57,9 @@ public final class LucarioRenderer {
     /** Размер крыльев элитр относительно обычного и положение на спине (единицы Bedrock от кости груди). */
     private static final float ELYTRA_SCALE_LUCARIO = 0.55f;
     private static final float ELYTRA_SCALE_RIOLU = 0.33f;
-    private static final float ELYTRA_UP_LUCARIO = 4.0f, ELYTRA_BACK_LUCARIO = 2.2f;
-    private static final float ELYTRA_UP_RIOLU = 3.0f, ELYTRA_BACK_RIOLU = 0.9f;
+    private static final float ELYTRA_UP_LUCARIO = 4.0f, ELYTRA_BACK_LUCARIO = 1.5f;
+    private static final float ELYTRA_BACK_MEGA = 1.7f;
+    private static final float ELYTRA_UP_RIOLU = 3.0f, ELYTRA_BACK_RIOLU = 0.65f;
     /** Руки вперёд при плавании/ползании/полёте: поворот плеча (рад) и сведение рук к оси тела. */
     private static final float ARMS_FORWARD_PITCH = -3.0f;
     private static final float ARMS_FORWARD_ROLL = 0.25f; // рад, разведение рук в стороны (чтобы не пересекали голову)
@@ -127,7 +128,7 @@ public final class LucarioRenderer {
             renderHeldItem(model, "hand_left", false, armed.leftHandItemState, itemScale, itemOffset, itemInward, matrices, vertexConsumers, light, overlay);
         }
         if (access.lucario$hasElytra()) {
-            renderElytra(model, riolu, gliding, state.isInPose(EntityPose.CROUCHING), access.lucario$getElytraTexture(), matrices, vertexConsumers, light, overlay);
+            renderElytra(model, riolu, Variants.isMega(variantKey), gliding, state.isInPose(EntityPose.CROUCHING), access.lucario$getElytraTexture(), matrices, vertexConsumers, light, overlay);
         }
         matrices.pop();
     }
@@ -351,17 +352,19 @@ public final class LucarioRenderer {
         ModelData data = new ModelData();
         ModelPartData root = data.getRoot();
         Dilation d = new Dilation(1.0F);
+        // Кубы направлены ВНУТРЬ от осей (как в ваниле): сложенные крылья сходятся у позвоночника,
+        // а в полёте разворачиваются наружу. Раньше кубы шли наружу — половины висели по сторонам с зазором.
         root.addChild("left_wing", ModelPartBuilder.create().uv(22, 0).mirrored(true)
-                .cuboid(0.0F, 0.0F, 0.0F, 10.0F, 20.0F, 2.0F, d), ModelTransform.NONE);
-        root.addChild("right_wing", ModelPartBuilder.create().uv(22, 0)
                 .cuboid(-10.0F, 0.0F, 0.0F, 10.0F, 20.0F, 2.0F, d), ModelTransform.NONE);
+        root.addChild("right_wing", ModelPartBuilder.create().uv(22, 0)
+                .cuboid(0.0F, 0.0F, 0.0F, 10.0F, 20.0F, 2.0F, d), ModelTransform.NONE);
         ModelPart r = TexturedModelData.of(data, 64, 32).createModel();
         elytraLeft = r.getChild("left_wing");
         elytraRight = r.getChild("right_wing");
     }
 
     /** Крылья элитр на спине (геометрия и текстура ванильные); при полёте раскрываются. */
-    private static void renderElytra(LucarioModel m, boolean riolu, boolean gliding, boolean crouching, Identifier texture,
+    private static void renderElytra(LucarioModel m, boolean riolu, boolean mega, boolean gliding, boolean crouching, Identifier texture,
                                      MatrixStack matrices, VertexConsumerProvider vcp, int light, int overlay) {
         String attach = m.parts.containsKey("chest") ? "chest" : "torso";
         if (!m.parts.containsKey(attach)) return;
@@ -385,7 +388,7 @@ public final class LucarioRenderer {
         matrices.push();
         applyChain(m, attach, matrices);
         matrices.translate(0.0F, -(riolu ? ELYTRA_UP_RIOLU : ELYTRA_UP_LUCARIO) / 16.0F,
-                (riolu ? ELYTRA_BACK_RIOLU : ELYTRA_BACK_LUCARIO) / 16.0F);
+                (riolu ? ELYTRA_BACK_RIOLU : mega ? ELYTRA_BACK_MEGA : ELYTRA_BACK_LUCARIO) / 16.0F);
         float k = (riolu ? ELYTRA_SCALE_RIOLU : ELYTRA_SCALE_LUCARIO) / LucarioModel.RENDER_SCALE;
         matrices.scale(k, k, k);
         matrices.translate(0.0F, 0.0F, 0.125F);

@@ -13,7 +13,7 @@
 ## Установка
 Нужен Minecraft 1.21.7, Fabric Loader ≥ 0.16.14 и [Fabric API](https://modrinth.com/mod/fabric-api) 0.129.0+1.21.7.
 1. Установите Fabric Loader через официальный установщик: https://fabricmc.net/use
-2. Положите `lucariomod-1.1.6.jar` и Fabric API в папку `mods`.
+2. Положите `lucariomod-1.1.7.jar` и Fabric API в папку `mods`.
 3. Мод нужен **и клиенту, и серверу** — на сервере регистрируются команды `/lucario`, `/riolu`, `/mega`
    и работает синхронизация внешности между игроками.
 
@@ -76,6 +76,7 @@ lucarioholiday, lucariomartialarts, lucariomega, lucariopmd, lucariopsmd, lucari
 * Предмет в руке слишком большой/смещён — `HELD_ITEM_SCALE_*`, `HAND_ITEM_OFFSET_*` и `HELD_ITEM_INWARD_*` в `LucarioRenderer` (и порядок поворотов в `renderHeldItem`).
 * Приседание слишком глубокое/мелкое — `CROUCH_HIP_DEG`, `CROUCH_TORSO_LEAN_DEG`, `CROUCH_GROUND_FIX` в `LucarioModel`.
 * Взмах слишком резкий/слабый — `SWING_ARM_PITCH`, `SWING_BODY_TWIST` в `LucarioRenderer`.
+* Элитры сидят слишком далеко от спины/врезаются в тело — `ELYTRA_BACK_*` в `LucarioRenderer` (отдельно для Лукарио, Меги и Риолу); размер крыльев — `ELYTRA_SCALE_*`.
 * Ноги/руки выгибаются «не в ту сторону» — в `LucarioModel` измените `ROT_SIGN_X / Y / Z` на `-1f`.
 * Лукарио слишком большой/маленький — `TARGET_HEIGHT_BLOCKS` в `LucarioModel`.
 * Руки/хвост «ездят» не туда при анимации — знак смещения `position` в `LucarioRenderer.pose`
