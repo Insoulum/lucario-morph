@@ -6,7 +6,8 @@
     "LivingEntityMixin",
     "LivingEntityRendererMixin",
     "AvatarRendererMixin",
-    "AvatarRenderStateMixin"
+    "AvatarRenderStateMixin",
+    "ItemInHandLayerMixin"
   ],
   "injectors": {
     "defaultRequire": 1

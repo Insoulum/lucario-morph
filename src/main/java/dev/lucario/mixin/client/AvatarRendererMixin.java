@@ -58,7 +58,8 @@ public abstract class AvatarRendererMixin {
         access.lucario$setRiding(entity.isPassenger());
 
         // Ванильные слои рассчитаны на скелет Стива — для образа отключаем:
-        // убираем броню/плащ/стрелы из состояния (рендерятся они уже после extractRenderState).
+        // убираем броню/плащ/стрелы/шляпу из состояния (рендерятся они уже после extractRenderState),
+        // а также очищаем уже извлечённое состояние предмета на голове (иначе шляпа "висит в воздухе").
         state.showCape = false;
         state.arrowCount = 0;
         state.stingerCount = 0;
@@ -66,6 +67,7 @@ public abstract class AvatarRendererMixin {
         state.chestEquipment = ItemStack.EMPTY;
         state.legsEquipment = ItemStack.EMPTY;
         state.feetEquipment = ItemStack.EMPTY;
+        state.headItem.clear();
     }
 
     /**

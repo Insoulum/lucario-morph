@@ -16,8 +16,8 @@
 ## Установка
 Нужен Minecraft 26.3, Fabric Loader ≥ 0.19.5 и [Fabric API](https://modrinth.com/mod/fabric-api) 0.164.0+26.3.
 1. Установите Fabric Loader через официальный установщик: https://fabricmc.net/use
-2. Положите `lucariomorph-fabric-26.3-1.2.0.jar` и Fabric API в папку `mods`.
-3. Мод нужен **и клиенту, и серверу** — на сервере регистрируются команды `/lucario`, `/riolu`, `/mega`
+2. Положите `lucariomorph-fabric-26.3-1.2.1.jar` и Fabric API в папку `mods`.
+3. Мод нужен **и клиенту, и серверу** — на сервере регистрируются команды `/lucario` и `/riolu`
    и работает синхронизация внешности между игроками.
 
 Готовые jar-файлы — в разделе [Releases](../../releases).
@@ -26,15 +26,18 @@
 | Команда | Что делает |
 |---|---|
 | `/lucario` | превратиться в Лукарио / вернуться (переключатель) |
-| `/lucario <вариант>` | выбрать костюм (Tab подсказывает список) |
-| `/lucario <вариант>_shiny` или `/lucario shiny` | шайни-текстура, например `lucariomega_shiny` |
+| `/lucario <вариант>` | выбрать костюм коротким именем: `/lucario captain`, `/lucario chef`, `/lucario mega` (Tab подсказывает список) |
+| `/lucario mega` | Мега-Лукарио (шило вместо отдельной команды `/mega`) |
+| `/lucario <вариант> shiny` или `/lucario <вариант>_shiny` | шайни-текстура — например `/lucario captain shiny` = `/lucario captain_shiny`; просто `/lucario shiny` — шайни по умолчанию |
 | `/lucario off` | снова стать обычным игроком |
 | `/riolu` | превратиться в Риолу / вернуться (переключатель) |
-| `/riolu <вариант>` | `riolu`, `riolupmd`, `riolupsmd` (и `_shiny`, или просто `/riolu shiny`) |
-| `/mega` | превратиться в Мега-Лукарио / вернуться; `/mega shiny` — шайни-версия |
+| `/riolu <вариант>` | короткие имена: `pmd`, `psmd` (и `/riolu pmd shiny`); просто `/riolu shiny` — шайни-Риолу |
 
-Варианты Лукарио: lucario, lucariocafe, lucariocaptain, lucariochef, lucarioconcert, lucariocostumeparty,
-lucarioholiday, lucariomartialarts, lucariomega, lucariopmd, lucariopsmd, lucarioruins, lucariospace.
+Слова в аргументе можно разделять и пробелом, и подчёркиванием: `/lucario costume party` = `/lucario costumeparty`.
+Полные имена вариантов тоже работают (обратная совместимость): `lucariocaptain`, `lucariomega_shiny` и т. д.
+
+Короткие имена Лукарио: cafe, captain, chef, concert, costumeparty, holiday, martialarts, mega, pmd, psmd, ruins, space
+(без аргумента — обычный Лукарио). У Риолу: pmd, psmd (без аргумента — обычный Риолу).
 Выбор сохраняется в папке мира (`lucariomod_morphs.json`).
 
 ## Сборка из исходников
@@ -56,8 +59,7 @@ lucarioholiday, lucariomartialarts, lucariomega, lucariopmd, lucariopsmd, lucari
 * **Элитры:** если в слоте нагрудника элитры, на спине рисуются ванильные крылья (текстура ванильная; кастомные
   текстуры элитр не подхватываются). При полёте крылья раскрываются, тело вытягивается по ходу движения, руки вперёд,
   ноги сзади. Размер и положение — `ELYTRA_*`. Текстура берётся как в ваниле: элитры из скина, иначе плащ игрока.
-* **Риолу и Мега-Лукарио:** ассеты Риолу (модель, анимации, текстуры) взяты из пака; Мега-Лукарио был и раньше,
-  теперь есть короткая команда `/mega`.
+* **Риолу и Мега-Лукарио:** ассеты Риолу (модель, анимации, текстуры) взяты из пака; Мега-Лукарио включается командой `/lucario mega`.
 * Рендер: Bedrock `.geo.json` → ModelPart (включая кубы с собственным поворотом, mirror, inflate).
 * Анимации: ground_idle, ground_walk, ground_run (бег), water_idle / water_swim (в воде), sleep, blink (моргание).
   Выражения Molang (`math.sin/abs/clamp`, `q.anim_time`) считаются встроенным мини-интерпретатором.
@@ -82,6 +84,8 @@ lucarioholiday, lucariomartialarts, lucariomega, lucariopmd, lucariopsmd, lucari
 * Элитры сидят слишком далеко от спины/врезаются в тело — `ELYTRA_BACK_*` в `LucarioRenderer` (отдельно для Лукарио, Меги и Риолу); размер крыльев — `ELYTRA_SCALE_*`.
 * Ноги/руки выгибаются «не в ту сторону» — в `LucarioModel` измените `ROT_SIGN_X / Y / Z` на `-1f`.
 * Лукарио слишком большой/маленький — `TARGET_HEIGHT_BLOCKS` в `LucarioModel`.
+* Модель "левитирует" над землёй или ступни утопают — `GROUND_SINK_PX` в `LucarioRenderer`
+  (сколько пикселей 1/16 блока опускать модель в позах стоя/ходьба/присед; в полёте, плавании и транспорте не применяется).
 * Руки/хвост «ездят» не туда при анимации — знак смещения `position` в `LucarioRenderer.pose`
   (строка `part.setOrigin(...)`): поменяйте `b[0] + px` на `b[0] - px`.
 

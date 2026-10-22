@@ -37,29 +37,23 @@ public class LucarioMod implements ModInitializer {
         });
 
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
-            // /lucario [вариант | off]
+            // /lucario [вариант | off] — например /lucario captain, /lucario captain shiny, /lucario mega
             dispatcher.register(Commands.literal("lucario")
                     .executes(ctx -> toggle(ctx.getSource(), Variants.DEFAULT_LUCARIO, Variants::isLucario))
                     .then(Commands.literal("off")
                             .executes(ctx -> apply(ctx.getSource(), null)))
-                    .then(Commands.argument("variant", StringArgumentType.word())
-                            .suggests((ctx, builder) -> { Variants.lucarioSuggestions().forEach(builder::suggest); return builder.buildFuture(); })
+                    .then(Commands.argument("variant", StringArgumentType.greedyString())
+                            .suggests((ctx, builder) -> { Variants.suggest(builder, Variants.DEFAULT_LUCARIO); return builder.buildFuture(); })
                             .executes(ctx -> applyArg(ctx, Variants.DEFAULT_LUCARIO))));
 
-            // /riolu [вариант | off]
+            // /riolu [вариант | off] — например /riolu pmd, /riolu pmd shiny
             dispatcher.register(Commands.literal("riolu")
                     .executes(ctx -> toggle(ctx.getSource(), Variants.DEFAULT_RIOLU, Variants::isRiolu))
                     .then(Commands.literal("off")
                             .executes(ctx -> apply(ctx.getSource(), null)))
-                    .then(Commands.argument("variant", StringArgumentType.word())
-                            .suggests((ctx, builder) -> { Variants.rioluSuggestions().forEach(builder::suggest); return builder.buildFuture(); })
+                    .then(Commands.argument("variant", StringArgumentType.greedyString())
+                            .suggests((ctx, builder) -> { Variants.suggest(builder, Variants.DEFAULT_RIOLU); return builder.buildFuture(); })
                             .executes(ctx -> applyArg(ctx, Variants.DEFAULT_RIOLU))));
-
-            // /mega [shiny] — быстрый переключатель Мега-Лукарио
-            dispatcher.register(Commands.literal("mega")
-                    .executes(ctx -> toggle(ctx.getSource(), Variants.MEGA, Variants::isMega))
-                    .then(Commands.literal("shiny")
-                            .executes(ctx -> apply(ctx.getSource(), Variants.MEGA + Variants.SHINY_SUFFIX))));
         });
     }
 
@@ -80,7 +74,7 @@ public class LucarioMod implements ModInitializer {
         ServerPlayer player = source.getPlayerOrException();
         String v = Variants.normalize(variant);
         if (v != null && !Variants.isValid(v)) {
-            source.sendFailure(Component.literal("Неизвестный вариант. Нажмите Tab, чтобы увидеть список."));
+            source.sendFailure(Component.literal("Неизвестный вариант. Нажмите Tab, чтобы увидеть список (например: /lucario captain, /lucario captain shiny, /lucario mega)."));
             return 0;
         }
         MorphManager.set(source.getServer(), player.getUUID(), v);
