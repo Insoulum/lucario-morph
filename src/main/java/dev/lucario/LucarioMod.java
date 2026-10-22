@@ -9,11 +9,10 @@ import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
-import net.minecraft.command.CommandSource;
-import net.minecraft.server.command.CommandManager;
-import net.minecraft.server.command.ServerCommandSource;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.text.Text;
+import net.minecraft.commands.CommandSourceStack;
+import net.minecraft.commands.Commands;
+import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerPlayer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -25,67 +24,67 @@ public class LucarioMod implements ModInitializer {
 
     @Override
     public void onInitialize() {
-        PayloadTypeRegistry.playS2C().register(MorphPayload.ID, MorphPayload.CODEC);
+        PayloadTypeRegistry.clientboundPlay().register(MorphPayload.ID, MorphPayload.CODEC);
 
         ServerLifecycleEvents.SERVER_STARTED.register(MorphManager::load);
         ServerLifecycleEvents.SERVER_STOPPED.register(MorphManager::unload);
 
         ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
-            ServerPlayerEntity player = handler.getPlayer();
+            ServerPlayer player = handler.getPlayer();
             MorphManager.sendAllTo(player);
-            String mine = MorphManager.get(player.getUuid());
-            if (mine != null) MorphManager.broadcast(server, player.getUuid(), mine);
+            String mine = MorphManager.get(player.getUUID());
+            if (mine != null) MorphManager.broadcast(server, player.getUUID(), mine);
         });
 
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
             // /lucario [вариант | off]
-            dispatcher.register(CommandManager.literal("lucario")
+            dispatcher.register(Commands.literal("lucario")
                     .executes(ctx -> toggle(ctx.getSource(), Variants.DEFAULT_LUCARIO, Variants::isLucario))
-                    .then(CommandManager.literal("off")
+                    .then(Commands.literal("off")
                             .executes(ctx -> apply(ctx.getSource(), null)))
-                    .then(CommandManager.argument("variant", StringArgumentType.word())
-                            .suggests((ctx, builder) -> CommandSource.suggestMatching(Variants.lucarioSuggestions(), builder))
+                    .then(Commands.argument("variant", StringArgumentType.word())
+                            .suggests((ctx, builder) -> { Variants.lucarioSuggestions().forEach(builder::suggest); return builder.buildFuture(); })
                             .executes(ctx -> applyArg(ctx, Variants.DEFAULT_LUCARIO))));
 
             // /riolu [вариант | off]
-            dispatcher.register(CommandManager.literal("riolu")
+            dispatcher.register(Commands.literal("riolu")
                     .executes(ctx -> toggle(ctx.getSource(), Variants.DEFAULT_RIOLU, Variants::isRiolu))
-                    .then(CommandManager.literal("off")
+                    .then(Commands.literal("off")
                             .executes(ctx -> apply(ctx.getSource(), null)))
-                    .then(CommandManager.argument("variant", StringArgumentType.word())
-                            .suggests((ctx, builder) -> CommandSource.suggestMatching(Variants.rioluSuggestions(), builder))
+                    .then(Commands.argument("variant", StringArgumentType.word())
+                            .suggests((ctx, builder) -> { Variants.rioluSuggestions().forEach(builder::suggest); return builder.buildFuture(); })
                             .executes(ctx -> applyArg(ctx, Variants.DEFAULT_RIOLU))));
 
             // /mega [shiny] — быстрый переключатель Мега-Лукарио
-            dispatcher.register(CommandManager.literal("mega")
+            dispatcher.register(Commands.literal("mega")
                     .executes(ctx -> toggle(ctx.getSource(), Variants.MEGA, Variants::isMega))
-                    .then(CommandManager.literal("shiny")
+                    .then(Commands.literal("shiny")
                             .executes(ctx -> apply(ctx.getSource(), Variants.MEGA + Variants.SHINY_SUFFIX))));
         });
     }
 
     /** Переключатель: если игрок уже в образе из этого семейства — вернуть обычный вид, иначе включить образ по умолчанию. */
-    private static int toggle(ServerCommandSource source, String defaultVariant, Predicate<String> sameFamily)
+    private static int toggle(CommandSourceStack source, String defaultVariant, Predicate<String> sameFamily)
             throws CommandSyntaxException {
-        ServerPlayerEntity player = source.getPlayerOrThrow();
-        String current = MorphManager.get(player.getUuid());
+        ServerPlayer player = source.getPlayerOrException();
+        String current = MorphManager.get(player.getUUID());
         return apply(source, current != null && sameFamily.test(current) ? null : defaultVariant);
     }
 
-    private static int applyArg(CommandContext<ServerCommandSource> ctx, String defaultBase) throws CommandSyntaxException {
+    private static int applyArg(CommandContext<CommandSourceStack> ctx, String defaultBase) throws CommandSyntaxException {
         String raw = StringArgumentType.getString(ctx, "variant");
         return apply(ctx.getSource(), Variants.resolve(raw, defaultBase));
     }
 
-    private static int apply(ServerCommandSource source, String variant) throws CommandSyntaxException {
-        ServerPlayerEntity player = source.getPlayerOrThrow();
+    private static int apply(CommandSourceStack source, String variant) throws CommandSyntaxException {
+        ServerPlayer player = source.getPlayerOrException();
         String v = Variants.normalize(variant);
         if (v != null && !Variants.isValid(v)) {
-            source.sendError(Text.literal("Неизвестный вариант. Нажмите Tab, чтобы увидеть список."));
+            source.sendFailure(Component.literal("Неизвестный вариант. Нажмите Tab, чтобы увидеть список."));
             return 0;
         }
-        MorphManager.set(source.getServer(), player.getUuid(), v);
-        source.sendFeedback(() -> Text.literal(v == null
+        MorphManager.set(source.getServer(), player.getUUID(), v);
+        source.sendSuccess(() -> Component.literal(v == null
                 ? "Вы снова обычный игрок."
                 : "Вы теперь " + Variants.title(v) + " (" + v + ")!"), false);
         return 1;

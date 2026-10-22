@@ -31,9 +31,9 @@ public interface LucarioStateAccess {
     void lucario$setHasElytra(boolean elytra);
 
     /** Текстура элитр игрока (элитры/плащ из его скина); null — обычная ванильная. */
-    net.minecraft.util.Identifier lucario$getElytraTexture();
+    net.minecraft.resources.Identifier lucario$getElytraTexture();
 
-    void lucario$setElytraTexture(net.minecraft.util.Identifier texture);
+    void lucario$setElytraTexture(net.minecraft.resources.Identifier texture);
 
     /** Игрок сейчас едет верхом (лодка, вагонетка, свинья и т.п.) — включаем позу сидения. */
     boolean lucario$isRiding();

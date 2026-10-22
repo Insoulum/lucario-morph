@@ -1,23 +1,23 @@
 package dev.lucario.net;
 
-import net.minecraft.network.RegistryByteBuf;
-import net.minecraft.network.codec.PacketCodec;
-import net.minecraft.network.codec.PacketCodecs;
-import net.minecraft.network.packet.CustomPayload;
-import net.minecraft.util.Identifier;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.codec.ByteBufCodecs;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.resources.Identifier;
 
 /** S2C: "игрок uuid теперь выглядит как variant" (пустая строка = обычный игрок). */
-public record MorphPayload(String uuid, String variant) implements CustomPayload {
-    public static final CustomPayload.Id<MorphPayload> ID =
-            new CustomPayload.Id<>(Identifier.of("lucariomod", "morph"));
+public record MorphPayload(String uuid, String variant) implements CustomPacketPayload {
+    public static final CustomPacketPayload.Type<MorphPayload> ID =
+            new CustomPacketPayload.Type<>(Identifier.fromNamespaceAndPath("lucariomod", "morph"));
 
-    public static final PacketCodec<RegistryByteBuf, MorphPayload> CODEC = PacketCodec.tuple(
-            PacketCodecs.STRING, MorphPayload::uuid,
-            PacketCodecs.STRING, MorphPayload::variant,
+    public static final StreamCodec<RegistryFriendlyByteBuf, MorphPayload> CODEC = StreamCodec.composite(
+            ByteBufCodecs.STRING_UTF8, MorphPayload::uuid,
+            ByteBufCodecs.STRING_UTF8, MorphPayload::variant,
             MorphPayload::new);
 
     @Override
-    public CustomPayload.Id<? extends CustomPayload> getId() {
+    public CustomPacketPayload.Type<? extends CustomPacketPayload> type() {
         return ID;
     }
 }

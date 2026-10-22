@@ -1,12 +1,12 @@
 {
   "required": true,
   "package": "dev.lucario.mixin.client",
-  "compatibilityLevel": "JAVA_21",
+  "compatibilityLevel": "JAVA_22",
   "client": [
     "LivingEntityMixin",
     "LivingEntityRendererMixin",
-    "PlayerEntityRendererMixin",
-    "PlayerEntityRenderStateMixin"
+    "AvatarRendererMixin",
+    "AvatarRenderStateMixin"
   ],
   "injectors": {
     "defaultRequire": 1

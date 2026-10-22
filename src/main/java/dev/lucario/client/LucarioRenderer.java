@@ -4,26 +4,28 @@ import dev.lucario.Variants;
 import dev.lucario.client.anim.BedrockAnimation;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
-import net.minecraft.client.model.Dilation;
-import net.minecraft.client.model.ModelData;
-import net.minecraft.client.model.ModelPart;
-import net.minecraft.client.model.ModelPartBuilder;
-import net.minecraft.client.model.ModelPartData;
-import net.minecraft.client.model.ModelTransform;
-import net.minecraft.client.model.TexturedModelData;
-import net.minecraft.client.render.OverlayTexture;
-import net.minecraft.client.render.RenderLayer;
-import net.minecraft.client.render.VertexConsumer;
-import net.minecraft.client.render.VertexConsumerProvider;
-import net.minecraft.client.render.entity.LivingEntityRenderer;
-import net.minecraft.client.render.entity.state.ArmedEntityRenderState;
-import net.minecraft.client.render.entity.state.LivingEntityRenderState;
-import net.minecraft.client.render.item.ItemRenderState;
-import net.minecraft.client.util.math.MatrixStack;
-import net.minecraft.entity.EntityPose;
-import net.minecraft.util.Identifier;
-import net.minecraft.util.math.MathHelper;
-import net.minecraft.util.math.RotationAxis;
+import net.minecraft.client.model.Model;
+import net.minecraft.client.model.geom.ModelPart;
+import net.minecraft.client.model.geom.PartPose;
+import net.minecraft.client.model.geom.builders.CubeDeformation;
+import net.minecraft.client.model.geom.builders.CubeListBuilder;
+import net.minecraft.client.model.geom.builders.LayerDefinition;
+import net.minecraft.client.model.geom.builders.MeshDefinition;
+import net.minecraft.client.model.geom.builders.PartDefinition;
+import net.minecraft.client.renderer.SubmitNodeCollector;
+import net.minecraft.client.renderer.entity.LivingEntityRenderer;
+import net.minecraft.client.renderer.entity.state.ArmedEntityRenderState;
+import net.minecraft.client.renderer.entity.state.LivingEntityRenderState;
+import net.minecraft.client.renderer.item.ItemStackRenderState;
+import net.minecraft.client.renderer.rendertype.RenderType;
+import net.minecraft.client.renderer.rendertype.RenderTypes;
+import net.minecraft.client.renderer.texture.OverlayTexture;
+import net.minecraft.resources.Identifier;
+import net.minecraft.util.Mth;
+import net.minecraft.world.entity.Pose;
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.blaze3d.vertex.VertexConsumer;
+import com.mojang.math.Axis;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
@@ -32,6 +34,8 @@ import java.util.Map;
 /**
  * Рисует Лукарио/Риолу вместо ванильной модели игрока: поза из Bedrock-анимаций + поворот головы,
  * плюс то, чего в анимациях нет: приседание, взмах рукой (удар/ломание блока), предметы в руках и рука от первого лица.
+ * В 26.x рендер сабмит-пайплайн: вместо прямого рисования через VertexConsumerProvider мы ставим
+ * позы костям и отправляем модель через SubmitNodeCollector.submitModel / submitModelPart / ItemStackRenderState.submit.
  */
 @Environment(EnvType.CLIENT)
 public final class LucarioRenderer {
@@ -70,7 +74,8 @@ public final class LucarioRenderer {
     /** На сколько единиц Bedrock Риолу приподнят в лодке/вагонетке и т.п. (иначе выглядывает из сиденья едва ли). */
     private static final float RIOLU_RIDE_LIFT = 3.0f;
 
-    private static final Identifier ELYTRA_TEXTURE = Identifier.ofVanilla("textures/entity/equipment/wings/elytra.png");
+    private static final Identifier ELYTRA_TEXTURE = Identifier.withDefaultNamespace("textures/entity/equipment/wings/elytra.png");
+    private static Model<LivingEntityRenderState> elytraModel;
     private static ModelPart elytraLeft;
     private static ModelPart elytraRight;
     /** Размах руки при ударе (рад) и скручивание корпуса. */
@@ -86,8 +91,8 @@ public final class LucarioRenderer {
     // ------------------------------------------------------------------ третье лицо / другие игроки
 
     public static void render(LivingEntityRenderState state, LucarioStateAccess access,
-                              MatrixStack matrices, VertexConsumerProvider vertexConsumers, int light) {
-        if (state.invisible) return;
+                              PoseStack matrices, SubmitNodeCollector collector, int light) {
+        if (state.isInvisible) return;
         String variantKey = access.lucario$getVariant();
         LucarioModel model = LucarioModels.get(Variants.baseOf(variantKey));
         if (model == null) return;
@@ -95,12 +100,12 @@ public final class LucarioRenderer {
         boolean riolu = Variants.isRiolu(variantKey);
         pose(model, state, access);
 
-        matrices.push();
-        matrices.multiply(RotationAxis.POSITIVE_Y.rotationDegrees(180.0F - state.bodyYaw));
+        matrices.pushPose();
+        matrices.rotateDegrees(Axis.YP, 180.0F - state.bodyRot);
         boolean gliding = access.lucario$isGliding();
-        if (state.isInPose(EntityPose.SWIMMING) || gliding) {
-            float angle = (state.touchingWater || gliding) ? -90.0F - state.pitch : -90.0F;
-            matrices.multiply(RotationAxis.POSITIVE_X.rotationDegrees(angle));
+        if (state.hasPose(Pose.SWIMMING) || gliding) {
+            float angle = (state.isInWater || gliding) ? -90.0F - state.xRot : -90.0F;
+            matrices.rotateDegrees(Axis.XP, angle);
             matrices.translate(0.0F, -1.0F, 0.3F);
         }
         matrices.scale(-1.0F, -1.0F, 1.0F);
@@ -108,29 +113,27 @@ public final class LucarioRenderer {
         // y_java = 24 - y_bedrock; подошва в y_bedrock = feetY должна оказаться на земле
         matrices.translate(0.0F, -(24.0F - model.feetY) / 16.0F, 0.0F);
         // Риолу в транспорте (лодка, вагонетка и т.д.) сидит чуть выше, чтобы не тонусть в сиденье
-        boolean riding = !state.isInPose(EntityPose.SLEEPING) && !gliding && access.lucario$isRiding();
+        boolean riding = !state.hasPose(Pose.SLEEPING) && !gliding && access.lucario$isRiding();
         if (riolu && riding) {
             matrices.translate(0.0F, -RIOLU_RIDE_LIFT / 16.0F, 0.0F);
         }
 
-        RenderLayer layer = RenderLayer.getEntityCutoutNoCull(
-                Variants.isShiny(variantKey) ? model.shinyTexture : model.texture);
-        VertexConsumer vc = vertexConsumers.getBuffer(layer);
-        int overlay = LivingEntityRenderer.getOverlay(state, 0.0F);
-        model.root.render(matrices, vc, light, overlay, -1);
+        Identifier texture = Variants.isShiny(variantKey) ? model.shinyTexture : model.texture;
+        int overlay = LivingEntityRenderer.getOverlayCoords(state, 0.0F);
+        collector.submitModel(model.entityModel, state, matrices, texture, light, overlay, state.outlineColor);
 
         // предметы в руках — в той же системе координат, что и модель
         float itemScale = riolu ? HELD_ITEM_SCALE_RIOLU : (Variants.isMega(variantKey) ? HELD_ITEM_SCALE_MEGA : HELD_ITEM_SCALE_LUCARIO);
         float itemOffset = riolu ? HAND_ITEM_OFFSET_RIOLU : HAND_ITEM_OFFSET_LUCARIO;
         float itemInward = riolu ? HELD_ITEM_INWARD_RIOLU : HELD_ITEM_INWARD_LUCARIO;
         if (state instanceof ArmedEntityRenderState armed) {
-            renderHeldItem(model, "hand_right", true, armed.rightHandItemState, itemScale, itemOffset, itemInward, matrices, vertexConsumers, light, overlay);
-            renderHeldItem(model, "hand_left", false, armed.leftHandItemState, itemScale, itemOffset, itemInward, matrices, vertexConsumers, light, overlay);
+            renderHeldItem(model, "hand_right", true, armed.rightHandItemState, itemScale, itemOffset, itemInward, matrices, collector, light, overlay, state.outlineColor);
+            renderHeldItem(model, "hand_left", false, armed.leftHandItemState, itemScale, itemOffset, itemInward, matrices, collector, light, overlay, state.outlineColor);
         }
         if (access.lucario$hasElytra()) {
-            renderElytra(model, riolu, Variants.isMega(variantKey), gliding, state.isInPose(EntityPose.CROUCHING), access.lucario$getElytraTexture(), matrices, vertexConsumers, light, overlay);
+            renderElytra(model, riolu, Variants.isMega(variantKey), gliding, state.hasPose(Pose.CROUCHING), access.lucario$getElytraTexture(), state, matrices, collector, light, overlay);
         }
-        matrices.pop();
+        matrices.popPose();
     }
 
     private static BedrockAnimation first(LucarioModel m, String... names) {
@@ -143,14 +146,14 @@ public final class LucarioRenderer {
 
     private static void pose(LucarioModel m, LivingEntityRenderState s, LucarioStateAccess access) {
         boolean sprinting = access.lucario$isSprinting();
-        boolean water = s.touchingWater;
-        boolean sleeping = s.isInPose(EntityPose.SLEEPING) && m.animation("sleep") != null;
+        boolean water = s.isInWater;
+        boolean sleeping = s.hasPose(Pose.SLEEPING) && m.animation("sleep") != null;
         boolean gliding = !sleeping && access.lucario$isGliding();
         // плавание, ползание и полёт: обе руки вытянуты вперёд (по ходу движения)
-        boolean armsForward = !sleeping && (gliding || s.isInPose(EntityPose.SWIMMING));
+        boolean armsForward = !sleeping && (gliding || s.hasPose(Pose.SWIMMING));
         // поездка верхом (лодка, вагонетка, свинья...): сидячая поза вместо стойки
         boolean riding = !sleeping && !gliding && access.lucario$isRiding();
-        boolean crouching = !sleeping && !water && !riding && s.isInPose(EntityPose.CROUCHING);
+        boolean crouching = !sleeping && !water && !riding && s.hasPose(Pose.CROUCHING);
 
         BedrockAnimation idle;
         BedrockAnimation move;
@@ -177,23 +180,23 @@ public final class LucarioRenderer {
         BedrockAnimation armIdle = m.animation("ground_idle") != null ? m.animation("ground_idle") : idle;
         BedrockAnimation blink = m.animation("blink");
 
-        double seconds = s.age / 20.0;
+        double seconds = s.ageInTicks / 20.0;
 
-        double phase = s.limbSwingAnimationProgress / STRIDE_CYCLE;
+        double phase = s.walkAnimationPos / STRIDE_CYCLE;
         phase -= Math.floor(phase);
         if (gliding) {
             // в полёте ноги машут с собственной частотой (скорость игрока на фазу не влияет)
             phase = seconds * FLIGHT_LEG_RATE % 1.0;
         }
         double moveTime = (move != null && move.length > 0) ? phase * move.length : seconds;
-        float w = move == null ? 0f : MathHelper.clamp(s.limbSwingAmplitude * 1.5f, 0f, 1f);
+        float w = move == null ? 0f : Mth.clamp(s.walkAnimationSpeed * 1.5f, 0f, 1f);
         if (crouching) w *= CROUCH_WALK_BLEND;
 
         double blinkT = seconds % BLINK_PERIOD_SECONDS;
         boolean blinking = blink != null && blink.length > 0 && blinkT < blink.length;
 
-        float headYaw = MathHelper.clamp(s.relativeHeadYaw, -50.0f, 50.0f);
-        float headPitch = MathHelper.clamp(s.pitch, -45.0f, 45.0f);
+        float headYaw = Mth.clamp(s.yRot, -50.0f, 50.0f);
+        float headPitch = Mth.clamp(s.xRot, -45.0f, 45.0f);
 
         // взмах рукой: плечо машет вперёд, корпус слегка скручивается (как у ванильного игрока)
         float swing = access.lucario$getSwing();
@@ -208,10 +211,10 @@ public final class LucarioRenderer {
             f *= f;
             f *= f;
             f = 1.0f - f;
-            float g = MathHelper.sin(f * (float) Math.PI);
-            float h = MathHelper.sin(swing * (float) Math.PI);
+            float g = Mth.sin(f * (float) Math.PI);
+            float h = Mth.sin(swing * (float) Math.PI);
             swingPitch = -(g * SWING_ARM_PITCH + h * 0.35f);
-            twist = MathHelper.sin(MathHelper.sqrt(swing) * (float) (Math.PI * 2.0)) * SWING_BODY_TWIST;
+            twist = Mth.sin(Mth.sqrt(swing) * (float) (Math.PI * 2.0)) * SWING_BODY_TWIST;
             if (!swingRight) twist = -twist;
         }
 
@@ -231,12 +234,12 @@ public final class LucarioRenderer {
             if (move != null && bw > 0f) move.sample(name, moveTime, R_MOVE, P_MOVE);
             else clear(R_MOVE, P_MOVE);
 
-            float rx = MathHelper.lerp(bw, R_IDLE[0], R_MOVE[0]);
-            float ry = MathHelper.lerp(bw, R_IDLE[1], R_MOVE[1]);
-            float rz = MathHelper.lerp(bw, R_IDLE[2], R_MOVE[2]);
-            float px = MathHelper.lerp(bw, P_IDLE[0], P_MOVE[0]);
-            float py = MathHelper.lerp(bw, P_IDLE[1], P_MOVE[1]);
-            float pz = MathHelper.lerp(bw, P_IDLE[2], P_MOVE[2]);
+            float rx = Mth.lerp(bw, R_IDLE[0], R_MOVE[0]);
+            float ry = Mth.lerp(bw, R_IDLE[1], R_MOVE[1]);
+            float rz = Mth.lerp(bw, R_IDLE[2], R_MOVE[2]);
+            float px = Mth.lerp(bw, P_IDLE[0], P_MOVE[0]);
+            float py = Mth.lerp(bw, P_IDLE[1], P_MOVE[1]);
+            float pz = Mth.lerp(bw, P_IDLE[2], P_MOVE[2]);
 
             if (blinking && blink.sample(name, blinkT, R_BLINK, P_BLINK)) {
                 rx += R_BLINK[0]; ry += R_BLINK[1]; rz += R_BLINK[2];
@@ -289,8 +292,8 @@ public final class LucarioRenderer {
             }
 
             // y у Bedrock направлен вверх, у Java-модели — вниз
-            part.setOrigin(b[0] + px, b[1] - py, b[2] + pz);
-            part.setAngles(pitch, yaw, roll);
+            part.setPos(b[0] + px, b[1] - py, b[2] + pz);
+            part.setRotation(pitch, yaw, roll);
         }
     }
 
@@ -303,12 +306,12 @@ public final class LucarioRenderer {
     }
 
     /** Повторяет то, что делает ModelPart.render: переносит матрицу в систему координат кости. */
-    private static void applyChain(LucarioModel m, String bone, MatrixStack matrices) {
+    private static void applyChain(LucarioModel m, String bone, PoseStack matrices) {
         for (String n : m.chainTo(bone)) {
             ModelPart p = m.parts.get(n);
-            matrices.translate(p.originX / 16.0F, p.originY / 16.0F, p.originZ / 16.0F);
-            if (p.pitch != 0.0F || p.yaw != 0.0F || p.roll != 0.0F) {
-                matrices.multiply(new Quaternionf().rotationZYX(p.roll, p.yaw, p.pitch));
+            matrices.translate(p.x / 16.0F, p.y / 16.0F, p.z / 16.0F);
+            if (p.xRot != 0.0F || p.yRot != 0.0F || p.zRot != 0.0F) {
+                matrices.rotate(new Quaternionf().rotationZYX(p.zRot, p.yRot, p.xRot));
             }
         }
     }
@@ -321,13 +324,13 @@ public final class LucarioRenderer {
      * "рука смотрит вдоль +Y, вперёд — минус Z". У Лукарио рука в покое смотрит вдоль -X (правая) / +X (левая),
      * поэтому добавляем поворот на 90 градусов вокруг Z.
      */
-    private static void renderHeldItem(LucarioModel m, String handBone, boolean right, ItemRenderState item,
+    private static void renderHeldItem(LucarioModel m, String handBone, boolean right, ItemStackRenderState item,
                                        float itemScale, float offsetUnits, float inwardUnits,
-                                       MatrixStack matrices, VertexConsumerProvider vcp, int light, int overlay) {
+                                       PoseStack matrices, SubmitNodeCollector collector, int light, int overlay, int outlineColor) {
         if (item == null || item.isEmpty()) return;
         if (!m.parts.containsKey(handBone)) return;
 
-        matrices.push();
+        matrices.pushPose();
         // сначала сдвиг в системе координат всей модели: к центру тела (правая рука — в сторону +X, левая — в -X)
         matrices.translate((right ? 1.0F : -1.0F) * inwardUnits / 16.0F, 0.0F, 0.0F);
         applyChain(m, handBone, matrices);
@@ -336,36 +339,41 @@ public final class LucarioRenderer {
         // вернуть предмету обычный размер (модель масштабирована RENDER_SCALE) и уменьшить под размер персонажа
         float k = itemScale / LucarioModel.RENDER_SCALE;
         matrices.scale(k, k, k);
-        matrices.multiply(RotationAxis.POSITIVE_Z.rotationDegrees(right ? 90.0F : -90.0F));
-        // дальше — как в ванильном HeldItemFeatureRenderer
-        matrices.multiply(RotationAxis.POSITIVE_X.rotationDegrees(-90.0F));
-        matrices.multiply(RotationAxis.POSITIVE_Y.rotationDegrees(180.0F));
+        matrices.rotateDegrees(Axis.ZP, right ? 90.0F : -90.0F);
+        // дальше — как в ванильном слое предметов
+        matrices.rotateDegrees(Axis.XP, -90.0F);
+        matrices.rotateDegrees(Axis.YP, 180.0F);
         matrices.translate(0.0F, 0.125F, 0.0F);
-        item.render(matrices, vcp, light, overlay);
-        matrices.pop();
+        item.submit(matrices, collector, light, overlay, outlineColor);
+        matrices.popPose();
     }
 
     // ------------------------------------------------------------------ элитры
 
     private static void ensureElytra() {
-        if (elytraLeft != null) return;
-        ModelData data = new ModelData();
-        ModelPartData root = data.getRoot();
-        Dilation d = new Dilation(1.0F);
+        if (elytraModel != null) return;
+        MeshDefinition data = new MeshDefinition();
+        PartDefinition root = data.getRoot();
+        CubeDeformation d = new CubeDeformation(1.0F);
         // Кубы направлены ВНУТРЬ от осей (как в ваниле): сложенные крылья сходятся у позвоночника,
         // а в полёте разворачиваются наружу. Раньше кубы шли наружу — половины висели по сторонам с зазором.
-        root.addChild("left_wing", ModelPartBuilder.create().uv(22, 0).mirrored(true)
-                .cuboid(-10.0F, 0.0F, 0.0F, 10.0F, 20.0F, 2.0F, d), ModelTransform.NONE);
-        root.addChild("right_wing", ModelPartBuilder.create().uv(22, 0)
-                .cuboid(0.0F, 0.0F, 0.0F, 10.0F, 20.0F, 2.0F, d), ModelTransform.NONE);
-        ModelPart r = TexturedModelData.of(data, 64, 32).createModel();
+        root.addOrReplaceChild("left_wing", CubeListBuilder.create().texOffs(22, 0).mirror(true)
+                .addBox(-10.0F, 0.0F, 0.0F, 10.0F, 20.0F, 2.0F, d), PartPose.ZERO);
+        root.addOrReplaceChild("right_wing", CubeListBuilder.create().texOffs(22, 0)
+                .addBox(0.0F, 0.0F, 0.0F, 10.0F, 20.0F, 2.0F, d), PartPose.ZERO);
+        ModelPart r = LayerDefinition.create(data, 64, 32).bakeRoot();
         elytraLeft = r.getChild("left_wing");
         elytraRight = r.getChild("right_wing");
+        elytraModel = new Model<>(r, RenderTypes::entityCutout) {
+            @Override
+            public void setupAnim(LivingEntityRenderState state) {
+            }
+        };
     }
 
     /** Крылья элитр на спине (геометрия и текстура ванильные); при полёте раскрываются. */
     private static void renderElytra(LucarioModel m, boolean riolu, boolean mega, boolean gliding, boolean crouching, Identifier texture,
-                                     MatrixStack matrices, VertexConsumerProvider vcp, int light, int overlay) {
+                                     LivingEntityRenderState state, PoseStack matrices, SubmitNodeCollector collector, int light, int overlay) {
         String attach = m.parts.containsKey("chest") ? "chest" : "torso";
         if (!m.parts.containsKey(attach)) return;
         ensureElytra();
@@ -380,32 +388,30 @@ public final class LucarioRenderer {
             y0 = 3.0F;
             yaw = 0.08726646F;
         }
-        elytraLeft.setOrigin(5.0F, y0, 0.0F);
-        elytraLeft.setAngles(pitch, yaw, roll);
-        elytraRight.setOrigin(-5.0F, y0, 0.0F);
-        elytraRight.setAngles(pitch, -yaw, -roll);
+        elytraLeft.setPos(5.0F, y0, 0.0F);
+        elytraLeft.setRotation(pitch, yaw, roll);
+        elytraRight.setPos(-5.0F, y0, 0.0F);
+        elytraRight.setRotation(pitch, -yaw, -roll);
 
-        matrices.push();
+        matrices.pushPose();
         applyChain(m, attach, matrices);
         matrices.translate(0.0F, -(riolu ? ELYTRA_UP_RIOLU : ELYTRA_UP_LUCARIO) / 16.0F,
                 (riolu ? ELYTRA_BACK_RIOLU : mega ? ELYTRA_BACK_MEGA : ELYTRA_BACK_LUCARIO) / 16.0F);
         float k = (riolu ? ELYTRA_SCALE_RIOLU : ELYTRA_SCALE_LUCARIO) / LucarioModel.RENDER_SCALE;
         matrices.scale(k, k, k);
         matrices.translate(0.0F, 0.0F, 0.125F);
-        VertexConsumer vc = vcp.getBuffer(RenderLayer.getEntityCutoutNoCull(texture != null ? texture : ELYTRA_TEXTURE));
-        elytraLeft.render(matrices, vc, light, overlay, -1);
-        elytraRight.render(matrices, vc, light, overlay, -1);
-        matrices.pop();
+        collector.submitModel(elytraModel, state, matrices, texture != null ? texture : ELYTRA_TEXTURE, light, overlay, state.outlineColor);
+        matrices.popPose();
     }
 
     // ------------------------------------------------------------------ рука от первого лица
 
     /**
-     * Вызывается вместо ванильной renderRightArm/renderLeftArm. В этот момент матрица уже стоит так, что рука Стива
+     * Вызывается вместо ванильного renderRightHand/renderLeftHand. В этот момент матрица уже стоит так, что рука Стива
      * (с плечом в точке (-5, 2, 0) / (5, 2, 0) пикселей) лежит правильно с учётом качания, взмаха и т.п.
-     * Мы ставим плечо Лукарио в ту же точку и рисуем только цепочку руки (плечо -> предплечье -> кисть -> пальцы).
+     * Мы ставим плечо Лукарио в ту же точку и сабмитим только цепочку руки (плечо -> предплечье -> кисть -> пальцы).
      */
-    public static void renderFirstPersonArm(MatrixStack matrices, VertexConsumerProvider vertexConsumers, int light,
+    public static void renderFirstPersonArm(PoseStack matrices, SubmitNodeCollector collector, int light,
                                             String variantKey, boolean right) {
         LucarioModel m = LucarioModels.get(Variants.baseOf(variantKey));
         if (m == null) return;
@@ -413,20 +419,18 @@ public final class LucarioRenderer {
         if (shoulder == null) return;
 
         poseIdle(m, System.nanoTime() / 1.0e9);
-        shoulder.setOrigin(0.0F, 0.0F, 0.0F);
+        shoulder.setPos(0.0F, 0.0F, 0.0F);
         float roll = (float) Math.toRadians(FIRST_PERSON_ARM_ROLL_DEG) * (right ? -1.0F : 1.0F);
-        shoulder.setAngles(shoulder.pitch, shoulder.yaw, shoulder.roll + roll);
+        shoulder.setRotation(shoulder.xRot, shoulder.yRot, shoulder.zRot + roll);
 
-        RenderLayer layer = RenderLayer.getEntityCutoutNoCull(
-                Variants.isShiny(variantKey) ? m.shinyTexture : m.texture);
-        VertexConsumer vc = vertexConsumers.getBuffer(layer);
+        Identifier texture = Variants.isShiny(variantKey) ? m.shinyTexture : m.texture;
 
-        matrices.push();
+        matrices.pushPose();
         matrices.translate((right ? -5.0F : 5.0F) / 16.0F, 2.0F / 16.0F, 0.0F);
         float s = LucarioModel.RENDER_SCALE * FIRST_PERSON_ARM_SCALE;
         matrices.scale(s, s, s);
-        shoulder.render(matrices, vc, light, OverlayTexture.DEFAULT_UV, -1);
-        matrices.pop();
+        collector.submitModelPart(shoulder, matrices, RenderTypes.entityCutout(texture), light, OverlayTexture.NO_OVERLAY, null);
+        matrices.popPose();
     }
 
     /** Поза покоя (ground_idle) без движения и мигания — для руки от первого лица. */
@@ -438,8 +442,8 @@ public final class LucarioRenderer {
             float[] b = m.base.get(name);
             if (idle != null) idle.sample(name, seconds, R_IDLE, P_IDLE);
             else clear(R_IDLE, P_IDLE);
-            part.setOrigin(b[0] + P_IDLE[0], b[1] - P_IDLE[1], b[2] + P_IDLE[2]);
-            part.setAngles(
+            part.setPos(b[0] + P_IDLE[0], b[1] - P_IDLE[1], b[2] + P_IDLE[2]);
+            part.setRotation(
                     b[3] + (float) Math.toRadians(R_IDLE[0]) * LucarioModel.ROT_SIGN_X,
                     b[4] + (float) Math.toRadians(R_IDLE[1]) * LucarioModel.ROT_SIGN_Y,
                     b[5] + (float) Math.toRadians(R_IDLE[2]) * LucarioModel.ROT_SIGN_Z);

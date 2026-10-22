@@ -8,22 +8,24 @@ import dev.lucario.LucarioMod;
 import dev.lucario.client.anim.BedrockAnimation;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
-import net.minecraft.client.model.Dilation;
-import net.minecraft.client.model.ModelData;
-import net.minecraft.client.model.ModelPart;
-import net.minecraft.client.model.ModelPartBuilder;
-import net.minecraft.client.model.ModelPartData;
-import net.minecraft.client.model.ModelTransform;
-import net.minecraft.client.model.TexturedModelData;
-import net.minecraft.resource.Resource;
-import net.minecraft.resource.ResourceManager;
-import net.minecraft.util.Identifier;
+import net.minecraft.client.model.Model;
+import net.minecraft.client.model.geom.ModelPart;
+import net.minecraft.client.model.geom.PartPose;
+import net.minecraft.client.model.geom.builders.CubeDeformation;
+import net.minecraft.client.model.geom.builders.CubeListBuilder;
+import net.minecraft.client.model.geom.builders.LayerDefinition;
+import net.minecraft.client.renderer.rendertype.RenderTypes;
+import net.minecraft.client.model.geom.builders.MeshDefinition;
+import net.minecraft.client.model.geom.builders.PartDefinition;
+import net.minecraft.resources.Identifier;
+import net.minecraft.server.packs.resources.Resource;
+import net.minecraft.server.packs.resources.ResourceManager;
 
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -46,7 +48,7 @@ public final class LucarioModel {
     /** Масштаб одинаковый для всех костюмов, чтобы шляпы не уменьшали Лукарио. */
     public static final float RENDER_SCALE = TARGET_HEIGHT_BLOCKS * 16.0f / BASE_MODEL_HEIGHT_UNITS;
 
-    // Знаки поворота (если конечности "выворачиваются" — поменяйте на -1 нужную ось).
+    // Знаки поворота (если конечности "выворачиваются" — поменяйте на -1 нужной оси).
     public static final float ROT_SIGN_X = 1f, ROT_SIGN_Y = 1f, ROT_SIGN_Z = 1f;
 
     // Приседание: на сколько градусов сгибаются бёдра и наклоняется корпус, и поправка "ступни на земле" (ед. Bedrock).
@@ -62,7 +64,7 @@ public final class LucarioModel {
     public final ModelPart root;
     /** Все кости по имени (включая корневые). */
     public final Map<String, ModelPart> parts = new LinkedHashMap<>();
-    /** originX, originY, originZ, pitch, yaw, roll — исходная поза кости. */
+    /** x, y, z, xRot, yRot, zRot — исходная поза кости. */
     public final Map<String, float[]> base = new HashMap<>();
     public final Map<String, BedrockAnimation> animations = new HashMap<>();
     /** Родитель каждой кости (для корневых костей записи нет). */
@@ -77,12 +79,19 @@ public final class LucarioModel {
     public final Identifier shinyTexture;
     /** Смещение, поднимающее подошвы на землю (в единицах Bedrock, y вверх). */
     public final float feetY;
+    /** Обёртка корня в Model для нового submit-пайплайна рендера (26.x). */
+    public final Model<net.minecraft.client.renderer.entity.state.LivingEntityRenderState> entityModel;
 
     private LucarioModel(ModelPart root, Identifier tex, Identifier shiny, float feetY) {
         this.root = root;
         this.texture = tex;
         this.shinyTexture = shiny;
         this.feetY = feetY;
+        this.entityModel = new Model<>(root, RenderTypes::entityCutout) {
+            @Override
+            public void setupAnim(net.minecraft.client.renderer.entity.state.LivingEntityRenderState state) {
+            }
+        };
     }
 
     public BedrockAnimation animation(String shortName) {
@@ -114,7 +123,7 @@ public final class LucarioModel {
     // ------------------------------------------------------------------ загрузка
 
     public static LucarioModel load(ResourceManager rm, String variant) throws IOException {
-        JsonObject geoRoot = readJson(rm, Identifier.of(LucarioMod.MOD_ID, "models/" + variant + ".geo.json"));
+        JsonObject geoRoot = readJson(rm, Identifier.fromNamespaceAndPath(LucarioMod.MOD_ID, "models/" + variant + ".geo.json"));
         JsonObject geo = geoRoot.getAsJsonArray("minecraft:geometry").get(0).getAsJsonObject();
         JsonObject desc = geo.getAsJsonObject("description");
         int texW = desc.get("texture_width").getAsInt();
@@ -126,12 +135,11 @@ public final class LucarioModel {
             defs.put(b.get("name").getAsString(), b);
         }
 
-        ModelData data = new ModelData();
-        Map<String, ModelPartData> built = new HashMap<>();
+        MeshDefinition data = new MeshDefinition();
+        Map<String, PartDefinition> built = new HashMap<>();
         for (String name : defs.keySet()) buildBone(name, defs, built, data.getRoot(), 0);
 
-        ModelPart root = TexturedModelData.of(data, texW, texH).createModel();
-        Function<String, ModelPart> getter = root.createPartGetter();
+        ModelPart root = LayerDefinition.create(data, texW, texH).bakeRoot();
 
         // подошвы: самый низ кубов в костях foot*
         double minFoot = Double.POSITIVE_INFINITY, minAny = Double.POSITIVE_INFINITY;
@@ -147,30 +155,48 @@ public final class LucarioModel {
         }
         double feet = Double.isInfinite(minFoot) ? (Double.isInfinite(minAny) ? 0 : minAny) : minFoot;
 
+        // Родители из geo (нужны и для поиска костей, и для цепочек)
         LucarioModel m = new LucarioModel(root,
-                Identifier.of(LucarioMod.MOD_ID, "textures/entity/" + variant + ".png"),
-                Identifier.of(LucarioMod.MOD_ID, "textures/entity/" + variant + "_shiny.png"),
+                Identifier.fromNamespaceAndPath(LucarioMod.MOD_ID, "textures/entity/" + variant + ".png"),
+                Identifier.fromNamespaceAndPath(LucarioMod.MOD_ID, "textures/entity/" + variant + "_shiny.png"),
                 (float) feet);
-
-        for (String name : defs.keySet()) {
-            ModelPart p = getter.apply(name);
-            if (p == null) continue;
-            m.parts.put(name, p);
-            m.base.put(name, new float[]{p.originX, p.originY, p.originZ, p.pitch, p.yaw, p.roll});
-            if (hiddenByDefault(name)) p.visible = false;
-        }
-
         for (Map.Entry<String, JsonObject> e : defs.entrySet()) {
             JsonObject b = e.getValue();
             if (b.has("parent") && defs.containsKey(b.get("parent").getAsString())) {
                 m.parentOf.put(e.getKey(), b.get("parent").getAsString());
             }
         }
+
+        // Поиск костей по имени: спускаемся от корня по цепочке родителей
+        Function<String, ModelPart> getter = name -> {
+            List<String> path = new ArrayList<>();
+            String cur = name;
+            while (cur != null) {
+                path.add(cur);
+                cur = m.parentOf.get(cur);
+            }
+            Collections.reverse(path);
+            ModelPart p = root;
+            for (String n : path) {
+                if (p == null || !p.hasChild(n)) return null;
+                p = p.getChild(n);
+            }
+            return p;
+        };
+
+        for (String name : defs.keySet()) {
+            ModelPart p = getter.apply(name);
+            if (p == null) continue;
+            m.parts.put(name, p);
+            m.base.put(name, new float[]{p.x, p.y, p.z, p.xRot, p.yRot, p.zRot});
+            if (hiddenByDefault(name)) p.visible = false;
+        }
+
         m.computeCrouch(defs, feet);
         m.computeSit(defs);
 
         // анимации
-        Identifier animId = Identifier.of(LucarioMod.MOD_ID, "animations/" + variant + ".animation.json");
+        Identifier animId = Identifier.fromNamespaceAndPath(LucarioMod.MOD_ID, "animations/" + variant + ".animation.json");
         JsonObject anims = readJson(rm, animId).getAsJsonObject("animations");
         for (Map.Entry<String, JsonElement> e : anims.entrySet()) {
             String full = e.getKey();
@@ -223,14 +249,14 @@ public final class LucarioModel {
         }
     }
 
-    private static ModelPartData buildBone(String name, Map<String, JsonObject> defs,
-                                           Map<String, ModelPartData> built, ModelPartData root, int depth) {
-        ModelPartData done = built.get(name);
+    private static PartDefinition buildBone(String name, Map<String, JsonObject> defs,
+                                            Map<String, PartDefinition> built, PartDefinition root, int depth) {
+        PartDefinition done = built.get(name);
         if (done != null) return done;
         JsonObject b = defs.get(name);
 
         String parentName = b.has("parent") ? b.get("parent").getAsString() : null;
-        ModelPartData parentData = root;
+        PartDefinition parentData = root;
         double[] parentJavaPivot = {0, 0, 0};
         if (parentName != null && defs.containsKey(parentName) && depth < 64) {
             parentData = buildBone(parentName, defs, built, root, depth + 1);
@@ -241,7 +267,7 @@ public final class LucarioModel {
         double[] jp = javaPivot(b);
         double[] rot = vec(b, "rotation");
 
-        ModelPartBuilder pb = ModelPartBuilder.create();
+        CubeListBuilder pb = CubeListBuilder.create();
         List<JsonObject> rotatedCubes = new ArrayList<>();
         if (b.has("cubes")) {
             for (JsonElement ce : b.getAsJsonArray("cubes")) {
@@ -251,7 +277,7 @@ public final class LucarioModel {
             }
         }
 
-        ModelPartData self = parentData.addChild(name, pb, ModelTransform.of(
+        PartDefinition self = parentData.addOrReplaceChild(name, pb, PartPose.offsetAndRotation(
                 (float) (jp[0] - parentJavaPivot[0]),
                 (float) (jp[1] - parentJavaPivot[1]),
                 (float) (jp[2] - parentJavaPivot[2]),
@@ -263,28 +289,28 @@ public final class LucarioModel {
         for (JsonObject c : rotatedCubes) {
             double[] cp = vec(c, "pivot");
             double[] cr = vec(c, "rotation");
-            ModelPartBuilder cb = ModelPartBuilder.create();
+            CubeListBuilder cb = CubeListBuilder.create();
             addCube(cb, c, cp[0], cp[1], cp[2]);
-            self.addChild(name + "#" + (i++), cb, ModelTransform.of(
+            self.addOrReplaceChild(name + "#" + (i++), cb, PartPose.offsetAndRotation(
                     (float) (cp[0] - bp[0]), (float) (bp[1] - cp[1]), (float) (cp[2] - bp[2]),
                     rad(cr[0], ROT_SIGN_X), rad(cr[1], ROT_SIGN_Y), rad(cr[2], ROT_SIGN_Z)));
         }
         return self;
     }
 
-    private static void addCube(ModelPartBuilder pb, JsonObject c, double px, double py, double pz) {
+    private static void addCube(CubeListBuilder pb, JsonObject c, double px, double py, double pz) {
         double[] o = vec(c, "origin");
         double[] s = vec(c, "size");
         double inflate = c.has("inflate") ? c.get("inflate").getAsDouble() : 0;
         JsonArray uv = c.getAsJsonArray("uv");
         boolean mirror = c.has("mirror") && c.get("mirror").getAsBoolean();
-        pb.uv(uv.get(0).getAsInt(), uv.get(1).getAsInt())
-                .mirrored(mirror)
-                .cuboid((float) (o[0] - px), (float) (py - o[1] - s[1]), (float) (o[2] - pz),
+        pb.texOffs(uv.get(0).getAsInt(), uv.get(1).getAsInt())
+                .mirror(mirror)
+                .addBox((float) (o[0] - px), (float) (py - o[1] - s[1]), (float) (o[2] - pz),
                         (float) s[0], (float) s[1], (float) s[2],
                         // кубы нулевой толщины (плоские шипы/плавники) дают мерцание: лицевая и задняя грани лежат
                         // в одной плоскости (z-fighting). Слегка "надуваем" такую ось, чтобы грани разошлись.
-                        new Dilation((float) (inflate + (s[0] == 0 ? FLAT_CUBE_PUFF : 0)),
+                        new CubeDeformation((float) (inflate + (s[0] == 0 ? FLAT_CUBE_PUFF : 0)),
                                 (float) (inflate + (s[1] == 0 ? FLAT_CUBE_PUFF : 0)),
                                 (float) (inflate + (s[2] == 0 ? FLAT_CUBE_PUFF : 0))));
     }
@@ -314,8 +340,8 @@ public final class LucarioModel {
     }
 
     private static JsonObject readJson(ResourceManager rm, Identifier id) throws IOException {
-        Resource res = rm.getResource(id).orElseThrow(() -> new IOException("Ресурс не найден: " + id));
-        try (BufferedReader r = res.getReader()) {
+        Resource res = rm.getResourceOrThrow(id);
+        try (BufferedReader r = res.openAsReader()) {
             return JsonParser.parseReader(r).getAsJsonObject();
         }
     }

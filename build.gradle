@@ -1,5 +1,5 @@
 plugins {
-    id 'fabric-loom' version '1.10-SNAPSHOT'
+    id 'net.fabricmc.fabric-loom' version '1.17.20'
     id 'maven-publish'
 }
 
@@ -7,7 +7,7 @@ version = project.mod_version
 group = project.maven_group
 
 base {
-    // Имя jar в стиле Modrinth: lucariomorph-fabric-1.21.7-1.1.7.jar
+    // Имя jar в стиле Modrinth: lucariomorph-fabric-26.3-1.2.0.jar
     // (Gradle сам добавит "-<mod_version>" к archivesName)
     archivesName = "${project.archives_base_name}-fabric-${project.minecraft_version}"
 }
@@ -17,9 +17,8 @@ repositories {
 
 dependencies {
     minecraft "com.mojang:minecraft:${project.minecraft_version}"
-    mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
-    modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
-    modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+    implementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
 }
 
 processResources {
@@ -30,11 +29,11 @@ processResources {
 }
 
 tasks.withType(JavaCompile).configureEach {
-    it.options.release = 21
+    it.options.release = 25
 }
 
 java {
     withSourcesJar()
-    sourceCompatibility = JavaVersion.VERSION_21
-    targetCompatibility = JavaVersion.VERSION_21
+    sourceCompatibility = JavaVersion.VERSION_25
+    targetCompatibility = JavaVersion.VERSION_25
 }

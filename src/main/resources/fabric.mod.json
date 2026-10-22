@@ -4,7 +4,9 @@
   "version": "${version}",
   "name": "Lucario Morph",
   "description": "Играйте за Лукарио, Мега-Лукарио или Риолу: команды /lucario, /mega, /riolu заменяют модель игрока (модели и анимации из Lucario Overhaul by JoeSeff).",
-  "authors": ["Insoulum"],
+  "authors": [
+    "Insoulum"
+  ],
   "contact": {
     "sources": "https://github.com/Insoulum/lucario-morph",
     "issues": "https://github.com/Insoulum/lucario-morph/issues"
@@ -12,14 +14,20 @@
   "license": "MIT",
   "environment": "*",
   "entrypoints": {
-    "main": ["dev.lucario.LucarioMod"],
-    "client": ["dev.lucario.client.LucarioClient"]
+    "main": [
+      "dev.lucario.LucarioMod"
+    ],
+    "client": [
+      "dev.lucario.client.LucarioClient"
+    ]
   },
-  "mixins": ["lucariomod.mixins.json"],
+  "mixins": [
+    "lucariomod.mixins.json"
+  ],
   "depends": {
-    "fabricloader": ">=0.16.10",
-    "minecraft": "~1.21.7",
-    "java": ">=21",
+    "fabricloader": ">=0.19.0",
+    "minecraft": "~26.3",
+    "java": ">=25",
     "fabric-api": "*"
   }
 }

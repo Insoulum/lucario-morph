@@ -7,8 +7,8 @@ import com.google.gson.reflect.TypeToken;
 import dev.lucario.net.MorphPayload;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.util.WorldSavePath;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.level.storage.LevelResource;
 
 import java.io.IOException;
 import java.io.Reader;
@@ -30,7 +30,7 @@ public final class MorphManager {
 
     public static void load(MinecraftServer server) {
         MORPHS.clear();
-        file = server.getSavePath(WorldSavePath.ROOT).resolve("lucariomod_morphs.json");
+        file = server.getWorldPath(LevelResource.ROOT).resolve("lucariomod_morphs.json");
         if (!Files.exists(file)) return;
         try (Reader r = Files.newBufferedReader(file)) {
             Map<String, String> m = GSON.fromJson(r, new TypeToken<Map<String, String>>() {}.getType());
@@ -76,13 +76,13 @@ public final class MorphManager {
 
     public static void broadcast(MinecraftServer server, UUID id, String variant) {
         MorphPayload payload = new MorphPayload(id.toString(), variant == null ? "" : variant);
-        for (ServerPlayerEntity p : server.getPlayerManager().getPlayerList()) {
+        for (ServerPlayer p : server.getPlayerList().getPlayers()) {
             if (ServerPlayNetworking.canSend(p, MorphPayload.ID)) ServerPlayNetworking.send(p, payload);
         }
     }
 
     /** Отправить новому игроку текущие облики всех. */
-    public static void sendAllTo(ServerPlayerEntity player) {
+    public static void sendAllTo(ServerPlayer player) {
         if (!ServerPlayNetworking.canSend(player, MorphPayload.ID)) return;
         MORPHS.forEach((id, variant) -> ServerPlayNetworking.send(player, new MorphPayload(id.toString(), variant)));
     }

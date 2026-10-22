@@ -1,4 +1,7 @@
-# Lucario Morph — Fabric-мод для Minecraft 1.21.7
+# Lucario Morph — Fabric-мод для Minecraft 26.3
+
+> Это порт на новую систему версий (26.x). Оригинальная версия для Minecraft 1.21.7 живёт в соседней ветке.
+> В 26.x игра не обфусцирована: маппинги (yarn/mojmap) не нужны, рендер переведён на submit-пайплайн, нужна Java 25.
 
 Превращает вашего игрока в Лукарио (13 костюмов, включая Мега-Лукарио) или Риолу (3 облика) из пака *Lucario Overhaul* by [JoeSeff](https://modrinth.com/datapack/lucario-overhaul).
 Вид и анимации Лукарио видят все игроки на сервере, у кого стоит мод.
@@ -11,9 +14,9 @@
 -->
 
 ## Установка
-Нужен Minecraft 1.21.7, Fabric Loader ≥ 0.16.14 и [Fabric API](https://modrinth.com/mod/fabric-api) 0.129.0+1.21.7.
+Нужен Minecraft 26.3, Fabric Loader ≥ 0.19.5 и [Fabric API](https://modrinth.com/mod/fabric-api) 0.164.0+26.3.
 1. Установите Fabric Loader через официальный установщик: https://fabricmc.net/use
-2. Положите `lucariomorph-fabric-1.21.7-1.1.7.jar` и Fabric API в папку `mods`.
+2. Положите `lucariomorph-fabric-26.3-1.2.0.jar` и Fabric API в папку `mods`.
 3. Мод нужен **и клиенту, и серверу** — на сервере регистрируются команды `/lucario`, `/riolu`, `/mega`
    и работает синхронизация внешности между игроками.
 
@@ -35,7 +38,7 @@ lucarioholiday, lucariomartialarts, lucariomega, lucariopmd, lucariopsmd, lucari
 Выбор сохраняется в папке мира (`lucariomod_morphs.json`).
 
 ## Сборка из исходников
-Нужен JDK 21 и интернет (при первой сборке Gradle скачает Minecraft/Fabric и маппинги).
+Нужен JDK 25 (его требует сама игра 26.3) и интернет (при первой сборке Gradle скачает Minecraft/Fabric).
 1. `./gradlew build` → готовый мод: `build/libs/lucariomorph-fabric-<версия Minecraft>-<версия мода>.jar`
    (версия берётся из `gradle.properties`; для проверки без установки: `./gradlew runClient`).
 2. Перед сборкой сверьте версии в `gradle.properties` со страницей https://fabricmc.net/develop
