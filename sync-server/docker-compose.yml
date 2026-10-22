@@ -1,0 +1,18 @@
+services:
+  lucario-sync:
+    build: .
+    image: lucario-sync:latest
+    container_name: lucario-sync
+    restart: unless-stopped
+    ports:
+      - "8080:8080"          # хост:контейнер — поменяйте левую часть, если 8080 занят
+    environment:
+      PORT: "8080"
+      RATE_PER_MIN: "120"    # запросов в минуту с одного IP
+      TTL_DAYS: "30"         # сколько дней хранить запись без обновлений
+      # --- авторизация записи через Mojang (можно не трогать) ---
+      # MOJANG_SESSION: "https://sessionserver.mojang.com"  # для тестов можно подменить заглушкой
+      # CHALLENGE_TTL: "300"     # время жизни одноразового challenge, сек
+      # MAX_PENDING: "10000"     # максимум незавершённых challenge
+    volumes:
+      - ./data:/data         # morphs.json (образы) + tokens.json (токены) — не теряются при пересборке

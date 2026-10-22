@@ -1,0 +1,139 @@
+package dev.lucario.client;
+
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import dev.lucario.LucarioMod;
+import dev.lucario.Variants;
+import net.fabricmc.api.EnvType;
+import net.fabricmc.api.Environment;
+import net.fabricmc.loader.api.FabricLoader;
+
+import java.io.Reader;
+import java.io.Writer;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Клиентские настройки мода: {@code config/lucariomorph.json}.
+ *
+ * <p>Здесь живёт всё, что нужно для игры на серверах <b>без</b> мода:
+ * включение синхронизации, список зеркал сервиса и запомненный образ игрока.
+ * Файл создаётся при первом запуске, правится и руками, и командами.</p>
+ */
+@Environment(EnvType.CLIENT)
+public final class SyncConfig {
+    /** Сервис синхронизации по умолчанию (зеркало автора мода). */
+    public static final String DEFAULT_SERVICE = "http://193.164.155.75:8080";
+
+    /** Синхронизировать образы через внешний сервис (для серверов без мода). */
+    public boolean syncEnabled = true;
+    /** Запоминать выбранный образ между сессиями и применять при входе в мир. */
+    public boolean rememberVariant = true;
+    /**
+     * Авто-авторизация записи через Mojang (запускается 401-м от зеркала, ретраи по расписанию).
+     * {@code false} — session-токен Mojang не используется вовсе, записи остаются открытыми.
+     * Обёртка Boolean (а не примитив): у конфигов от 1.3.x этого поля нет, а Gson через
+     * Unsafe заполняет отсутствующие примитивы {@code false} — потеряли бы значение по умолчанию.
+     */
+    public Boolean autoAuth = Boolean.TRUE;
+    /** Как часто (в секундах) проверять образы игроков на сервере. Минимум 2. */
+    public int syncIntervalSeconds = 5;
+    /** Зеркала сервиса синхронизации. Публикация идёт во все, чтение — с первого ответившего. */
+    public List<String> serviceUrls = new ArrayList<>(List.of(DEFAULT_SERVICE));
+    /** Образ игрока (без него пришлось бы вводить /lucario при каждом входе). */
+    public String lastVariant = "";
+    /**
+     * Токены записи по адресам зеркал: адрес → токен (сервис выдаёт автоматически
+     * после проверки через Mojang). Защищённое зеркало принимает PUT/DELETE только
+     * с этим заголовком. Если файл конфига удалить — токены вернутся автоматически:
+     * повторная авторизация через Mojang отдаст те же.
+     */
+    public Map<String, String> serviceTokens = new LinkedHashMap<>();
+
+    private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
+    private static volatile SyncConfig instance;
+
+    private final transient Path file;
+
+    private SyncConfig(Path file) {
+        this.file = file;
+    }
+
+    public static SyncConfig get() {
+        SyncConfig cfg = instance;
+        if (cfg != null) return cfg;
+        synchronized (SyncConfig.class) {
+            if (instance != null) return instance;
+            instance = load(FabricLoader.getInstance().getConfigDir().resolve("lucariomorph.json"));
+            return instance;
+        }
+    }
+
+    private static SyncConfig load(Path file) {
+        SyncConfig cfg = new SyncConfig(file);
+        if (Files.exists(file)) {
+            try (Reader r = Files.newBufferedReader(file)) {
+                SyncConfig loaded = new Gson().fromJson(r, SyncConfig.class);
+                if (loaded != null) {
+                    cfg.syncEnabled = loaded.syncEnabled;
+                    cfg.rememberVariant = loaded.rememberVariant;
+                    if (loaded.autoAuth != null) cfg.autoAuth = loaded.autoAuth;
+                    cfg.syncIntervalSeconds = loaded.syncIntervalSeconds;
+                    cfg.lastVariant = loaded.lastVariant == null ? "" : loaded.lastVariant;
+                    if (loaded.serviceUrls != null && !loaded.serviceUrls.isEmpty()) {
+                        cfg.serviceUrls = new ArrayList<>(loaded.serviceUrls);
+                    }
+                    if (loaded.serviceTokens != null) {
+                        cfg.serviceTokens.putAll(loaded.serviceTokens);
+                    }
+                }
+            } catch (Exception e) {
+                LucarioMod.LOGGER.warn("[Lucario Sync] Не удалось прочитать {}, использую значения по умолчанию", file, e);
+            }
+        }
+        // Нормализация значений
+        cfg.serviceUrls.removeIf(u -> u == null || u.isBlank());
+        for (int i = 0; i < cfg.serviceUrls.size(); i++) {
+            cfg.serviceUrls.set(i, cfg.serviceUrls.get(i).trim().replaceAll("/+$", ""));
+        }
+        cfg.serviceUrls.removeIf(String::isEmpty);
+        if (cfg.serviceUrls.isEmpty()) cfg.serviceUrls = new ArrayList<>(List.of(DEFAULT_SERVICE));
+        if (cfg.syncIntervalSeconds < 2) cfg.syncIntervalSeconds = 2;
+        if (cfg.autoAuth == null) cfg.autoAuth = Boolean.TRUE;
+        if (!cfg.lastVariant.isEmpty() && !Variants.isValid(cfg.lastVariant)) cfg.lastVariant = "";
+        // Токены: ключи приводим к тому же виду, что и serviceUrls (без хвостового «/»)
+        Map<String, String> tokens = new LinkedHashMap<>();
+        cfg.serviceTokens.forEach((k, v) -> {
+            if (k == null || v == null) return;
+            String kk = k.trim().replaceAll("/+$", "");
+            String vv = v.trim();
+            if (!kk.isEmpty() && !vv.isEmpty()) tokens.put(kk, vv);
+        });
+        cfg.serviceTokens = tokens;
+        return cfg;
+    }
+
+    /** Атомарно сохраняет конфиг (сначала во временный файл, потом переименование). */
+    public void save() {
+        Path target = file;
+        if (target == null) return;
+        try {
+            Path tmp = target.resolveSibling(target.getFileName() + ".tmp");
+            try (Writer w = Files.newBufferedWriter(tmp)) {
+                GSON.toJson(this, w);
+            }
+            try {
+                Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            } catch (java.io.IOException atomicUnsupported) {
+                Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
+            }
+        } catch (Exception e) {
+            LucarioMod.LOGGER.warn("[Lucario Sync] Не удалось сохранить {}", target, e);
+        }
+    }
+}
