@@ -6,7 +6,7 @@ import net.minecraft.resources.Identifier;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 
-/** Добавляет в состояние рендера игрока поля "какой образ", "бежит ли" и "взмах рукой". */
+/** Добавляет в состояние рендера игрока поля "какой образ", "бежит ли", "взмах рукой" и личную модель. */
 @Mixin(AvatarRenderState.class)
 public class AvatarRenderStateMixin implements LucarioStateAccess {
     @Unique
@@ -25,6 +25,8 @@ public class AvatarRenderStateMixin implements LucarioStateAccess {
     private Identifier lucario$elytraTexture;
     @Unique
     private boolean lucario$riding;
+    @Unique
+    private dev.lucario.client.LucarioModel lucario$model;
 
     @Override
     public String lucario$getVariant() {
@@ -104,5 +106,15 @@ public class AvatarRenderStateMixin implements LucarioStateAccess {
     @Override
     public void lucario$setRiding(boolean riding) {
         this.lucario$riding = riding;
+    }
+
+    @Override
+    public dev.lucario.client.LucarioModel lucario$getModel() {
+        return lucario$model;
+    }
+
+    @Override
+    public void lucario$setModel(dev.lucario.client.LucarioModel model) {
+        this.lucario$model = model;
     }
 }

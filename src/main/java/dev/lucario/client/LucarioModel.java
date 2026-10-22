@@ -14,6 +14,7 @@ import net.minecraft.client.model.geom.PartPose;
 import net.minecraft.client.model.geom.builders.CubeDeformation;
 import net.minecraft.client.model.geom.builders.CubeListBuilder;
 import net.minecraft.client.model.geom.builders.LayerDefinition;
+import net.minecraft.client.renderer.entity.state.LivingEntityRenderState;
 import net.minecraft.client.renderer.rendertype.RenderTypes;
 import net.minecraft.client.model.geom.builders.MeshDefinition;
 import net.minecraft.client.model.geom.builders.PartDefinition;
@@ -65,34 +66,58 @@ public final class LucarioModel {
     private static final double SIT_KNEE_OPEN_DEG = 16.0;
 
     public final ModelPart root;
-    /** Все кости по имени (включая корневые). */
+    /** Все кости по имени (включая корневые). Свои у каждой выпеченной модели — см. LucarioModels. */
     public final Map<String, ModelPart> parts = new LinkedHashMap<>();
     /** x, y, z, xRot, yRot, zRot — исходная поза кости. */
     public final Map<String, float[]> base = new HashMap<>();
-    public final Map<String, BedrockAnimation> animations = new HashMap<>();
+    /** Анимации шарятся между выпечками: BedrockAnimation после разбора неизменяемый. */
+    public final Map<String, BedrockAnimation> animations;
     /** Родитель каждой кости (для корневых костей записи нет). */
-    public final Map<String, String> parentOf = new HashMap<>();
+    public final Map<String, String> parentOf;
     /** Добавочный наклон (pitch, радианы) костей при приседании: бёдра, колени, ступни, корпус. */
-    public final Map<String, Float> crouchPitch = new HashMap<>();
+    public final Map<String, Float> crouchPitch;
     /** Добавочный наклон (pitch, радианы) бёдер и коленей в позе сидения (в транспорте). */
-    public final Map<String, Float> sitPitch = new HashMap<>();
+    public final Map<String, Float> sitPitch;
     /** На сколько единиц Bedrock опускается тело при приседании, чтобы ступни остались на земле. */
-    public float crouchDrop;
+    public final float crouchDrop;
     public final Identifier texture;
     public final Identifier shinyTexture;
     /** Смещение, поднимающее подошвы на землю (в единицах Bedrock, y вверх). */
     public final float feetY;
-    /** Обёртка корня в Model для нового submit-пайплайна рендера (26.x). */
-    public final Model<net.minecraft.client.renderer.entity.state.LivingEntityRenderState> entityModel;
+    /** Крылья элитр — своя пара костей у каждой модели (раньше были общими — та же ошибка "общей позы"). */
+    public final ModelPart elytraLeft;
+    public final ModelPart elytraRight;
+    /** Обёртка крыльев элитр в Model для сабмита (кости — личные, setupAnim пустой: поза ставится перед сабмитом). */
+    public final Model<LivingEntityRenderState> elytraModel;
+    /** Обёртка корня в Model для нового submit-пайплайна рендера (26.x).
+     *  setupAnim вызывается пайплайном при отрисовке сабмита — здесь поза переприменяется
+     *  из состояния этого конкретного игрока, поэтому одинаковые образы не "копируют" друг друга. */
+    public final Model<LivingEntityRenderState> entityModel;
 
-    private LucarioModel(ModelPart root, Identifier tex, Identifier shiny, float feetY) {
+    private LucarioModel(ModelPart root, Definition d) {
         this.root = root;
-        this.texture = tex;
-        this.shinyTexture = shiny;
-        this.feetY = feetY;
+        this.animations = d.animations;
+        this.parentOf = d.parentOf;
+        this.crouchPitch = d.crouchPitch;
+        this.sitPitch = d.sitPitch;
+        this.crouchDrop = d.crouchDrop;
+        this.texture = d.texture;
+        this.shinyTexture = d.shinyTexture;
+        this.feetY = d.feetY;
+        ModelPart elytra = elytraLayer().bakeRoot();
+        this.elytraLeft = elytra.getChild("left_wing");
+        this.elytraRight = elytra.getChild("right_wing");
+        this.elytraModel = new Model<>(elytra, RenderTypes::entityCutout) {
+            @Override
+            public void setupAnim(LivingEntityRenderState state) {
+            }
+        };
         this.entityModel = new Model<>(root, RenderTypes::entityCutout) {
             @Override
-            public void setupAnim(net.minecraft.client.renderer.entity.state.LivingEntityRenderState state) {
+            public void setupAnim(LivingEntityRenderState state) {
+                if (state instanceof LucarioStateAccess access && access.lucario$getVariant() != null) {
+                    LucarioRenderer.pose(LucarioModel.this, state, access);
+                }
             }
         };
     }
@@ -125,7 +150,35 @@ public final class LucarioModel {
 
     // ------------------------------------------------------------------ загрузка
 
-    public static LucarioModel load(ResourceManager rm, String variant) throws IOException {
+    /**
+     * Всё, что дорого разбирать из JSON и что не зависит от игрока: слой геометрии,
+     * анимации, кости-родители, поправки приседа/сидения. Кэшируется на базовый вариант
+     * и шарится; из него выпекается личное дерево ModelPart на каждого игрока (см. bake).
+     */
+    public static final class Definition {
+        final LayerDefinition layer;
+        final float feetY;
+        final List<String> boneOrder;
+        final Map<String, String> parentOf = new HashMap<>();
+        final Map<String, BedrockAnimation> animations = new HashMap<>();
+        final Map<String, Float> crouchPitch = new HashMap<>();
+        final Map<String, Float> sitPitch = new HashMap<>();
+        float crouchDrop;
+        final Identifier texture;
+        final Identifier shinyTexture;
+
+        Definition(LayerDefinition layer, float feetY, List<String> boneOrder,
+                   Identifier texture, Identifier shinyTexture) {
+            this.layer = layer;
+            this.feetY = feetY;
+            this.boneOrder = boneOrder;
+            this.texture = texture;
+            this.shinyTexture = shinyTexture;
+        }
+    }
+
+    /** Разбор Bedrock-геометрии и анимаций варианта (тяжёлая часть, делается один раз). */
+    public static Definition loadDefinition(ResourceManager rm, String variant) throws IOException {
         JsonObject geoRoot = readJson(rm, Identifier.fromNamespaceAndPath(LucarioMod.MOD_ID, "models/" + variant + ".geo.json"));
         JsonObject geo = geoRoot.getAsJsonArray("minecraft:geometry").get(0).getAsJsonObject();
         JsonObject desc = geo.getAsJsonObject("description");
@@ -151,7 +204,7 @@ public final class LucarioModel {
         }
         for (String name : defs.keySet()) buildBone(name, defs, built, data.getRoot(), 0, positiveBoxes);
 
-        ModelPart root = LayerDefinition.create(data, texW, texH).bakeRoot();
+        LayerDefinition layer = LayerDefinition.create(data, texW, texH);
 
         // подошвы: самый низ кубов в костях foot*
         double minFoot = Double.POSITIVE_INFINITY, minAny = Double.POSITIVE_INFINITY;
@@ -167,17 +220,35 @@ public final class LucarioModel {
         }
         double feet = Double.isInfinite(minFoot) ? (Double.isInfinite(minAny) ? 0 : minAny) : minFoot;
 
-        // Родители из geo (нужны и для поиска костей, и для цепочек)
-        LucarioModel m = new LucarioModel(root,
+        Definition d = new Definition(layer, (float) feet, new ArrayList<>(defs.keySet()),
                 Identifier.fromNamespaceAndPath(LucarioMod.MOD_ID, "textures/entity/" + variant + ".png"),
-                Identifier.fromNamespaceAndPath(LucarioMod.MOD_ID, "textures/entity/" + variant + "_shiny.png"),
-                (float) feet);
+                Identifier.fromNamespaceAndPath(LucarioMod.MOD_ID, "textures/entity/" + variant + "_shiny.png"));
+
+        // Родители из geo (нужны и для поиска костей, и для цепочек)
         for (Map.Entry<String, JsonObject> e : defs.entrySet()) {
             JsonObject b = e.getValue();
             if (b.has("parent") && defs.containsKey(b.get("parent").getAsString())) {
-                m.parentOf.put(e.getKey(), b.get("parent").getAsString());
+                d.parentOf.put(e.getKey(), b.get("parent").getAsString());
             }
         }
+
+        computeCrouch(d, defs, feet);
+        computeSit(d, defs);
+        // анимации
+        Identifier animId = Identifier.fromNamespaceAndPath(LucarioMod.MOD_ID, "animations/" + variant + ".animation.json");
+        JsonObject anims = readJson(rm, animId).getAsJsonObject("animations");
+        for (Map.Entry<String, JsonElement> e : anims.entrySet()) {
+            String full = e.getKey();
+            String shortName = full.substring(full.lastIndexOf('.') + 1);
+            d.animations.put(shortName, new BedrockAnimation(shortName, e.getValue().getAsJsonObject()));
+        }
+        return d;
+    }
+
+    /** Выпечка личного экземпляра модели из определения: свежее дерево ModelPart на игрока. */
+    public static LucarioModel bake(Definition d) {
+        ModelPart root = d.layer.bakeRoot();
+        LucarioModel m = new LucarioModel(root, d);
 
         // Поиск костей по имени: спускаемся от корня по цепочке родителей
         Function<String, ModelPart> getter = name -> {
@@ -196,33 +267,38 @@ public final class LucarioModel {
             return p;
         };
 
-        for (String name : defs.keySet()) {
+        for (String name : d.boneOrder) {
             ModelPart p = getter.apply(name);
             if (p == null) continue;
             m.parts.put(name, p);
             m.base.put(name, new float[]{p.x, p.y, p.z, p.xRot, p.yRot, p.zRot});
             if (hiddenByDefault(name)) p.visible = false;
         }
-
-        m.computeCrouch(defs, feet);
-        m.computeSit(defs);
-
-        // анимации
-        Identifier animId = Identifier.fromNamespaceAndPath(LucarioMod.MOD_ID, "animations/" + variant + ".animation.json");
-        JsonObject anims = readJson(rm, animId).getAsJsonObject("animations");
-        for (Map.Entry<String, JsonElement> e : anims.entrySet()) {
-            String full = e.getKey();
-            String shortName = full.substring(full.lastIndexOf('.') + 1);
-            m.animations.put(shortName, new BedrockAnimation(shortName, e.getValue().getAsJsonObject()));
-        }
         return m;
+    }
+
+    /** Геометрия ванильных крыльев элитр (общий слой, но кости выпекаются на каждую модель). */
+    private static LayerDefinition elytraLayer() {
+        MeshDefinition data = new MeshDefinition();
+        PartDefinition root = data.getRoot();
+        CubeDeformation d = new CubeDeformation(1.0F);
+        // Кубы направлены ВНУТРЬ от осей (как в ваниле): сложенные крылья сходятся у позвоночника,
+        // а в полёте разворачиваются наружу. Раньше кубы шли наружу — половины висели по сторонам с зазором.
+        // Зеркалирование (mirror) у половин перепутано: наша модель рисуется в перевёрнутом по X фрейме
+        // (scale(-1,-1,1)), из-за чего текстурные половинки элитры оказываются на противоположных крыльях.
+        // У ванилы зеркалится левое крыло — здесь, с учётом нашего фрейма, зеркалим правое.
+        root.addOrReplaceChild("left_wing", CubeListBuilder.create().texOffs(22, 0)
+                .addBox(-10.0F, 0.0F, 0.0F, 10.0F, 20.0F, 2.0F, d), PartPose.ZERO);
+        root.addOrReplaceChild("right_wing", CubeListBuilder.create().texOffs(22, 0).mirror(true)
+                .addBox(0.0F, 0.0F, 0.0F, 10.0F, 20.0F, 2.0F, d), PartPose.ZERO);
+        return LayerDefinition.create(data, 64, 32);
     }
 
     /**
      * Приседание по длинам ног самой модели: бедро вперёд на alpha, колено (leg*3) назад на beta, ступня выравнивается;
      * тело опускается на crouchDrop, корпус наклоняется вперёд. Подходит и Лукарио, и Риолу (у них одни имена костей).
      */
-    private void computeCrouch(Map<String, JsonObject> defs, double feetY) {
+    private static void computeCrouch(Definition d, Map<String, JsonObject> defs, double feetY) {
         if (!defs.containsKey("leg_right") || !defs.containsKey("leg_right3")) return;
         double hipY = vec(defs.get("leg_right"), "pivot")[1];
         double kneeY = vec(defs.get("leg_right3"), "pivot")[1];
@@ -233,21 +309,21 @@ public final class LucarioModel {
         double alpha = Math.toRadians(CROUCH_HIP_DEG);
         double gamma = Math.asin(Math.min(1.0, l1 / l2 * Math.sin(alpha)));
         double beta = gamma + alpha;
-        crouchDrop = (float) ((l1 + l2) - (l1 * Math.cos(alpha) + l2 * Math.cos(gamma)) + CROUCH_GROUND_FIX);
+        d.crouchDrop = (float) ((l1 + l2) - (l1 * Math.cos(alpha) + l2 * Math.cos(gamma)) + CROUCH_GROUND_FIX);
 
         for (String side : new String[]{"right", "left"}) {
-            crouchPitch.put("leg_" + side, (float) -alpha);
-            crouchPitch.put("leg_" + side + "3", (float) beta);
-            crouchPitch.put("foot_" + side, (float) -gamma);
+            d.crouchPitch.put("leg_" + side, (float) -alpha);
+            d.crouchPitch.put("leg_" + side + "3", (float) beta);
+            d.crouchPitch.put("foot_" + side, (float) -gamma);
         }
-        if (defs.containsKey("torso")) crouchPitch.put("torso", (float) Math.toRadians(CROUCH_TORSO_LEAN_DEG));
+        if (defs.containsKey("torso")) d.crouchPitch.put("torso", (float) Math.toRadians(CROUCH_TORSO_LEAN_DEG));
     }
 
     /**
      * Поза сидения по геометрии ног: бёдра поднимаются вперёд почти на 90° (с поправкой, чтобы корпус
      * не заваливался), колени — обратно, так что ноги выходят прямыми. Подходит всем трём персонажам.
      */
-    private void computeSit(Map<String, JsonObject> defs) {
+    private static void computeSit(Definition d, Map<String, JsonObject> defs) {
         for (String side : new String[]{"right", "left"}) {
             String hip = "leg_" + side;
             String mid = hip + "2";
@@ -256,8 +332,8 @@ public final class LucarioModel {
             float hipBase = (float) Math.toRadians(vec(defs.get(hip), "rotation")[0]);
             float midBase = defs.containsKey(mid) ? (float) Math.toRadians(vec(defs.get(mid), "rotation")[0]) : 0f;
             float kneeBase = (float) Math.toRadians(vec(defs.get(knee), "rotation")[0]);
-            sitPitch.put(hip, (float) (-Math.PI / 2.0 - hipBase - Math.toRadians(SIT_HIP_LIFT_DEG)));
-            sitPitch.put(knee, (float) (Math.PI / 2.0 - kneeBase - midBase - Math.toRadians(SIT_KNEE_OPEN_DEG)));
+            d.sitPitch.put(hip, (float) (-Math.PI / 2.0 - hipBase - Math.toRadians(SIT_HIP_LIFT_DEG)));
+            d.sitPitch.put(knee, (float) (Math.PI / 2.0 - kneeBase - midBase - Math.toRadians(SIT_KNEE_OPEN_DEG)));
         }
     }
 

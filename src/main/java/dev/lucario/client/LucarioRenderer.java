@@ -4,14 +4,7 @@ import dev.lucario.Variants;
 import dev.lucario.client.anim.BedrockAnimation;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
-import net.minecraft.client.model.Model;
 import net.minecraft.client.model.geom.ModelPart;
-import net.minecraft.client.model.geom.PartPose;
-import net.minecraft.client.model.geom.builders.CubeDeformation;
-import net.minecraft.client.model.geom.builders.CubeListBuilder;
-import net.minecraft.client.model.geom.builders.LayerDefinition;
-import net.minecraft.client.model.geom.builders.MeshDefinition;
-import net.minecraft.client.model.geom.builders.PartDefinition;
 import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.entity.LivingEntityRenderer;
 import net.minecraft.client.renderer.entity.state.ArmedEntityRenderState;
@@ -80,9 +73,6 @@ public final class LucarioRenderer {
     private static final float GROUND_SINK_PX = 0.5f;
 
     private static final Identifier ELYTRA_TEXTURE = Identifier.withDefaultNamespace("textures/entity/equipment/wings/elytra.png");
-    private static Model<LivingEntityRenderState> elytraModel;
-    private static ModelPart elytraLeft;
-    private static ModelPart elytraRight;
     /** Размах руки при ударе (рад) и скручивание корпуса. */
     private static final float SWING_ARM_PITCH = 1.2f;
     private static final float SWING_BODY_TWIST = 0.2f;
@@ -99,7 +89,9 @@ public final class LucarioRenderer {
                               PoseStack matrices, SubmitNodeCollector collector, int light) {
         if (state.isInvisible) return;
         String variantKey = access.lucario$getVariant();
-        LucarioModel model = LucarioModels.get(Variants.baseOf(variantKey));
+        // Модель своя у каждого игрока (1.4.3): у одинаковых образов больше нет общих костей,
+        // и поза одного не переписывает позу другого при отложенной отрисовке сабмитов.
+        LucarioModel model = access.lucario$getModel();
         if (model == null) return;
 
         boolean riolu = Variants.isRiolu(variantKey);
@@ -160,7 +152,12 @@ public final class LucarioRenderer {
         return null;
     }
 
-    private static void pose(LucarioModel m, LivingEntityRenderState s, LucarioStateAccess access) {
+    /**
+     * Раскладывает анимации/позы по костям модели. Чистая функция от состояния: вызывается и на сабмите
+     * (чтобы цепочки предметов/элитр посчитали матрицы по свежим позам), и из setupAnim модели —
+     * пайплайн вызывает его при отрисовке сабмита, поэтому каждый игрок рисуется в своей позе.
+     */
+    static void pose(LucarioModel m, LivingEntityRenderState s, LucarioStateAccess access) {
         boolean sprinting = access.lucario$isSprinting();
         boolean water = s.isInWater;
         boolean sleeping = s.hasPose(Pose.SLEEPING) && m.animation("sleep") != null;
@@ -366,36 +363,13 @@ public final class LucarioRenderer {
 
     // ------------------------------------------------------------------ элитры
 
-    private static void ensureElytra() {
-        if (elytraModel != null) return;
-        MeshDefinition data = new MeshDefinition();
-        PartDefinition root = data.getRoot();
-        CubeDeformation d = new CubeDeformation(1.0F);
-        // Кубы направлены ВНУТРЬ от осей (как в ваниле): сложенные крылья сходятся у позвоночника,
-        // а в полёте разворачиваются наружу. Раньше кубы шли наружу — половины висели по сторонам с зазором.
-        // Зеркалирование (mirror) у половин перепутано: наша модель рисуется в перевёрнутом по X фрейме
-        // (scale(-1,-1,1)), из-за чего текстурные половинки элитры оказываются на противоположных крыльях.
-        // У ванилы зеркалится левое крыло — здесь, с учётом нашего фрейма, зеркалим правое.
-        root.addOrReplaceChild("left_wing", CubeListBuilder.create().texOffs(22, 0)
-                .addBox(-10.0F, 0.0F, 0.0F, 10.0F, 20.0F, 2.0F, d), PartPose.ZERO);
-        root.addOrReplaceChild("right_wing", CubeListBuilder.create().texOffs(22, 0).mirror(true)
-                .addBox(0.0F, 0.0F, 0.0F, 10.0F, 20.0F, 2.0F, d), PartPose.ZERO);
-        ModelPart r = LayerDefinition.create(data, 64, 32).bakeRoot();
-        elytraLeft = r.getChild("left_wing");
-        elytraRight = r.getChild("right_wing");
-        elytraModel = new Model<>(r, RenderTypes::entityCutout) {
-            @Override
-            public void setupAnim(LivingEntityRenderState state) {
-            }
-        };
-    }
-
-    /** Крылья элитр на спине (геометрия и текстура ванильные); при полёте раскрываются. */
+    /** Крылья элитр на спине (геометрия и текстура ванильные); при полёте раскрываются.
+     *  Кости крыльев — из личного набора модели (m.elytraLeft/Right), чтобы у двух игроков
+     *  в элитрах позы крыльев тоже не "перетекали" друг в друга. */
     private static void renderElytra(LucarioModel m, boolean riolu, boolean mega, boolean gliding, boolean crouching, Identifier texture,
                                      LivingEntityRenderState state, PoseStack matrices, SubmitNodeCollector collector, int light, int overlay) {
         String attach = m.parts.containsKey("chest") ? "chest" : "torso";
         if (!m.parts.containsKey(attach)) return;
-        ensureElytra();
 
         float pitch = 0.2617994F, roll = -0.2617994F, yaw = 0.0F, y0 = 0.0F;
         if (gliding) {
@@ -407,10 +381,10 @@ public final class LucarioRenderer {
             y0 = 3.0F;
             yaw = 0.08726646F;
         }
-        elytraLeft.setPos(5.0F, y0, 0.0F);
-        elytraLeft.setRotation(pitch, yaw, roll);
-        elytraRight.setPos(-5.0F, y0, 0.0F);
-        elytraRight.setRotation(pitch, -yaw, -roll);
+        m.elytraLeft.setPos(5.0F, y0, 0.0F);
+        m.elytraLeft.setRotation(pitch, yaw, roll);
+        m.elytraRight.setPos(-5.0F, y0, 0.0F);
+        m.elytraRight.setRotation(pitch, -yaw, -roll);
 
         matrices.pushPose();
         applyChain(m, attach, matrices);
@@ -419,7 +393,7 @@ public final class LucarioRenderer {
         float k = (riolu ? ELYTRA_SCALE_RIOLU : ELYTRA_SCALE_LUCARIO) / LucarioModel.RENDER_SCALE;
         matrices.scale(k, k, k);
         matrices.translate(0.0F, 0.0F, 0.125F);
-        collector.submitModel(elytraModel, state, matrices, texture != null ? texture : ELYTRA_TEXTURE, light, overlay, state.outlineColor);
+        collector.submitModel(m.elytraModel, state, matrices, texture != null ? texture : ELYTRA_TEXTURE, light, overlay, state.outlineColor);
         matrices.popPose();
     }
 
@@ -432,7 +406,9 @@ public final class LucarioRenderer {
      */
     public static void renderFirstPersonArm(PoseStack matrices, SubmitNodeCollector collector, int light,
                                             String variantKey, boolean right) {
-        LucarioModel m = LucarioModels.get(Variants.baseOf(variantKey));
+        // Отдельный экземпляр (не личная модель игрока): кости руки не пересекаются ни с чьими сабмитами,
+        // поза ставится здесь и читается при отрисовке этой же руки.
+        LucarioModel m = LucarioModels.getFirstPerson(Variants.baseOf(variantKey));
         if (m == null) return;
         ModelPart shoulder = m.parts.get(right ? "arm_right" : "arm_left");
         if (shoulder == null) return;

@@ -39,4 +39,13 @@ public interface LucarioStateAccess {
     boolean lucario$isRiding();
 
     void lucario$setRiding(boolean riding);
+
+    /**
+     * Личный экземпляр модели этого игрока (1.4.3). Разрешается один раз в extractRenderState,
+     * где доступна сущность (и её UUID): у каждого игрока свои кости — позы одинаковых образов
+     * больше не пересекаются при отложенной отрисовке.
+     */
+    LucarioModel lucario$getModel();
+
+    void lucario$setModel(LucarioModel model);
 }

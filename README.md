@@ -122,12 +122,26 @@ in the client config and passed through the sync service). Fabric resolves the p
 if the server knows the command, the server-side version runs.
 
 ## Building from source
-Requires JDK 25 (the game 26.3 itself demands it) and internet (on the first build Gradle will download
-Minecraft/Fabric).
-1. `./gradlew build` → the ready mod: `build/libs/lucariomorph-fabric-<Minecraft version>-<mod version>.jar`
-   (the version is taken from `gradle.properties`; to try it without installing: `./gradlew runClient`).
-2. Before building, check the versions in `gradle.properties` against https://fabricmc.net/develop
-   (especially `yarn_mappings`).
+
+What you need:
+* **Any JDK 17+ to launch Gradle** — compilation itself uses Java 25: the project declares a toolchain
+  (`build.gradle`) and Gradle, via the Foojay resolver (`settings.gradle`), will find and download JDK 25
+  automatically on the first run. If you prefer to install JDK 25 yourself (e.g.
+  [Temurin](https://adoptium.net)), that also works.
+* **Internet** — the first build downloads the Gradle distribution, Minecraft 26.3, Fabric Loader and
+  Fabric API (a few hundred MB; later builds are fast, everything is cached in `~/.gradle`).
+
+Build:
+1. `./gradlew build` (Windows: `gradlew.bat build`) → the ready mod:
+   `build/libs/lucariomorph-fabric-<Minecraft version>-<mod version>.jar`
+   (the version is taken from `gradle.properties`; to run a dev client without installing: `./gradlew runClient`).
+2. Before building, check `minecraft_version` / `loader_version` / `fabric_version` in `gradle.properties`
+   against https://fabricmc.net/develop.
+
+Troubleshooting: if the build fails with `error: release version 25 not supported`, compilation ran on an
+old JDK — normally the toolchain prevents this. Check internet access (the Foojay resolver downloads JDK 25
+from the network), or explicitly run Gradle itself on JDK 25: point `JAVA_HOME` at the JDK 25 installation
+and repeat `./gradlew build`.
 
 ## What is implemented
 * **First-person arm:** instead of Steve's arm, the Lucario/Riolu arm is drawn (with their texture).

@@ -1,6 +1,9 @@
 package dev.lucario.mixin.client;
 
+import dev.lucario.Variants;
 import dev.lucario.client.ClientMorphs;
+import dev.lucario.client.LucarioModel;
+import dev.lucario.client.LucarioModels;
 import dev.lucario.client.LucarioRenderer;
 import dev.lucario.client.LucarioStateAccess;
 import net.minecraft.client.Minecraft;
@@ -31,9 +34,21 @@ public abstract class AvatarRendererMixin {
     private void lucario$copyState(Avatar entity, AvatarRenderState state,
                                    float tickProgress, CallbackInfo ci) {
         LucarioStateAccess access = (LucarioStateAccess) (Object) state;
+        // Состояния переиспользуются между сущностями и кадрами — сбрасываем личную модель.
+        access.lucario$setModel(null);
         String variant = ClientMorphs.get(entity.getUUID());
         access.lucario$setVariant(variant);
         if (variant == null) return;
+
+        // 1.4.3: личный экземпляр модели на игрока. Раньше кэш был общий на вариант, и два игрока
+        // с одинаковым образом (в т.ч. обычный и shiny) получали одни и те же кости — позы "сливались".
+        LucarioModel model = LucarioModels.get(entity.getUUID(), Variants.baseOf(variant));
+        if (model == null) {
+            // Модель не загрузилась — откатываемся на ванильный скин вместо невидимости.
+            access.lucario$setVariant(null);
+            return;
+        }
+        access.lucario$setModel(model);
 
         access.lucario$setSprinting(entity.isSprinting());
 

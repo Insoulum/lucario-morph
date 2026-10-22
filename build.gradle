@@ -33,6 +33,11 @@ tasks.withType(JavaCompile).configureEach {
 }
 
 java {
+    // Explicit toolchain: Gradle picks/locates a Java 25 JDK for compilation
+    // (together with the Foojay resolver in settings.gradle it is downloaded automatically).
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
     withSourcesJar()
     sourceCompatibility = JavaVersion.VERSION_25
     targetCompatibility = JavaVersion.VERSION_25

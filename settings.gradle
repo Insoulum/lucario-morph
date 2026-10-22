@@ -5,4 +5,11 @@ pluginManagement {
         gradlePluginPortal()
     }
 }
+
+// Auto-download the required JDK (Java 25) if the system has none —
+// Gradle fetches it on the first build via the Foojay toolchains resolver.
+plugins {
+    id 'org.gradle.toolchains.foojay-resolver-convention' version '1.0.0'
+}
+
 rootProject.name = 'lucariomod'
