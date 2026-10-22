@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "lucariomod",
-  "version": "${version}",
+  "version": "1.4.1",
   "name": "Lucario Morph",
   "description": "Играйте за Лукарио, Мега-Лукарио или Риолу: команды /lucario и /riolu заменяют модель игрока (модели и анимации из Lucario Overhaul by JoeSeff). Работает и на серверах без мода: образы синхронизируются через внешний сервис (можно добавить своё зеркало в конфиге), а запись образа автоматически защищается от подмены авторизацией через Mojang.",
   "authors": [
@@ -29,5 +29,6 @@
     "minecraft": "~26.3",
     "java": ">=25",
     "fabric-api": "*"
-  }
+  },
+  "icon": "assets/lucariomod/icon.png"
 }
