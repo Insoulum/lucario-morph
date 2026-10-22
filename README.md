@@ -1,40 +1,43 @@
-# Lucario Morph — Fabric-мод для Minecraft 26.3
+# Lucario Morph — a Fabric mod for Minecraft 26.3
 
-> Это порт на новую систему версий (26.x). Оригинальная версия для Minecraft 1.21.7 живёт в соседней ветке.
-> В 26.x игра не обфусцирована: маппинги (yarn/mojmap) не нужны, рендер переведён на submit-пайплайн, нужна Java 25.
+> This is a port to the new versioning system (26.x). The original version for Minecraft 1.21.7 lives in a sibling branch.
+> In 26.x the game is not obfuscated: mappings (yarn/mojmap) are not needed, the renderer was moved to the submit pipeline, and Java 25 is required.
 
-Превращает вашего игрока в Лукарио (13 костюмов, включая Мега-Лукарио) или Риолу (3 облика) из пака *Lucario Overhaul* by [JoeSeff](https://modrinth.com/datapack/lucario-overhaul).
-Вид и анимации Лукарио видят все игроки на сервере, у кого стоит мод.
+Turns your player into Lucario (13 costumes, including Mega Lucario) or Riolu (3 looks) from the *Lucario Overhaul* pack by [JoeSeff](https://modrinth.com/datapack/lucario-overhaul).
+The Lucario look and animations are visible to every player on the server who has the mod.
 
-<!-- РЕКОМЕНДУЕТСЯ: добавьте скриншоты/гифки — создайте папку screenshots/ в репозитории и раскомментируйте строки ниже:
-## Скриншоты
-![Лукарио](screenshots/lucario.png)
-![Риолу](screenshots/riolu.png)
-![Полёт на элитрах](screenshots/elytra.gif)
+<!-- RECOMMENDED: add screenshots/gif — create a screenshots/ folder in the repository and uncomment the lines below:
+## Screenshots
+![Lucario](screenshots/lucario.png)
+![Riolu](screenshots/riolu.png)
+![Elytra flight](screenshots/elytra.gif)
 -->
 
-## Установка
-Нужен Minecraft 26.3, Fabric Loader ≥ 0.19.5 и [Fabric API](https://modrinth.com/mod/fabric-api) 0.164.0+26.3.
-1. Установите Fabric Loader через официальный установщик: https://fabricmc.net/use
-2. Положите `lucariomorph-fabric-26.3-1.4.0.jar` и Fabric API в папку `mods`.
-3. Дальше — один из двух вариантов:
-   * **Сервер с модом** (классический режим): положите jar и на сервер. Команды `/lucario` и `/riolu`
-     регистрируются сервером, выбор сохраняется в папке мира, образы видят все, у кого есть мод.
-   * **Сервер без мода** (режим синхронизации): достаточно клиента. Команды работают прямо из клиента,
-     образ запоминается в конфиге и передаётся между игроками через внешний сервис —
-     см. раздел ниже.
+Also available in: [Русском](README.ru.md).
 
-Готовые jar-файлы — в разделе [Releases](../../releases).
+## Installation
+Requires Minecraft 26.3, Fabric Loader ≥ 0.19.5 and [Fabric API](https://modrinth.com/mod/fabric-api) 0.164.0+26.3.
+1. Install Fabric Loader via the official installer: https://fabricmc.net/use
+2. Put `lucariomorph-fabric-26.3-1.4.2.jar` and Fabric API into the `mods` folder.
+3. Then pick one of two options:
+   * **Modded server** (classic mode): put the jar on the server as well. The `/lucario` and `/riolu`
+     commands are registered by the server, the choice is saved in the world folder, and the morph is visible
+     to everyone who has the mod.
+   * **Server without the mod** (sync mode): the client alone is enough. The commands work right from the client,
+     the morph is remembered in the config and passed between players through an external service —
+     see the section below.
 
-## Игра на серверах без мода (синхронизация через сервис)
-Начиная с 1.3.0 мод не требует установки на сервер: образы игроков синхронизируются через
-внешний HTTP-сервис (схема как у Figura). Работает так:
-* ваш клиент публикует «мой UUID → мой образ» на зеркало сервиса при смене образа и при входе в мир,
-  а затем раз в 15 минут (настройка `heartbeatMinutes`) тихо подтверждает запись — «пульс»;
-* раз в несколько секунд клиент спрашивает у зеркала образы всех, кто сейчас на сервере;
-* сняли образ (`/lucario off`) — у остальных он тоже пропадёт.
+Ready-made jars are in [Releases](../../releases).
 
-Зеркало по умолчанию — `http://193.164.155.75:8080` (сервис автора). Всё настраивается в
+## Playing on servers without the mod (service-based sync)
+Since 1.3.0 the mod does not require installation on the server: player morphs are synced through
+an external HTTP service (a Figura-style scheme). It works like this:
+* your client publishes "my UUID → my morph" to a service mirror on morph change and on world join,
+  and then every 15 minutes (the `heartbeatMinutes` setting) silently refreshes the record — the "pulse";
+* every few seconds the client asks the mirror for the morphs of everyone currently on the server;
+* when you clear your morph (`/lucario off`), it disappears for everyone else too.
+
+The default mirror is `http://193.164.155.75:8080` (the author's service). Everything is configurable in
 `config/lucariomorph.json`:
 
 ```json
@@ -46,139 +49,146 @@
   "heartbeatMinutes": 15,
   "serviceUrls": [
     "http://193.164.155.75:8080",
-    "http://моё-зеркало.example.org:8080"
+    "http://my-mirror.example.org:8080"
   ],
   "lastVariant": "lucariocaptain_shiny",
   "serviceTokens": {
-    "http://193.164.155.75:8080": "…токен, сервис выдаёт его автоматически…"
+    "http://193.164.155.75:8080": "…the token, the service issues it automatically…"
   }
 }
 ```
 
-* `syncEnabled` — включить/выключить синхронизацию (образ локально работает и без неё);
-* `rememberVariant` — помнить образ между сессиями (не вводить `/lucario` заново);
-* `autoAuth` — авто-авторизация записи через Mojang (по умолчанию `true`); `false` —
-  session-токен Mojang не используется вовсе, записи остаются открытыми;
-* `syncIntervalSeconds` — период опроса (минимум 2);
-* `heartbeatMinutes` — раз в сколько минут клиент тихо перепубликует текущий образ,
-  чтобы запись не протухла на зеркалах с коротким TTL (0 — выключить; по умолчанию 15);
-* `serviceUrls` — зеркала: публикация идёт во все, чтение — с первого ответившего.
-  Свой сервер поднимается за пару минут (Docker): репозиторий
-  [`lucariomorph-server`](https://github.com/Insoulum/lucariomorph-server);
-* `serviceTokens` — токены записи зеркал (см. ниже); заполняются автоматически,
-  руками править не нужно;
-* чтобы игроки видели друг друга, их списки зеркал должны иметь общее зеркало.
+* `syncEnabled` — turn syncing on/off (the morph works locally without it as well);
+* `rememberVariant` — remember the morph between sessions (no need to type `/lucario` again);
+* `autoAuth` — automatic record authorization via Mojang (default `true`); `false` —
+  the Mojang session token is not used at all, records stay open;
+* `syncIntervalSeconds` — polling period (minimum 2);
+* `heartbeatMinutes` — how often the client silently re-publishes the current morph,
+  so the record doesn't go stale on mirrors with a short TTL (0 — disable; default 15);
+* `serviceUrls` — mirrors: publishing goes to all of them, reading — from the first one that responds.
+  Your own server takes a couple of minutes to set up (Docker): the
+  [`lucariomorph-server`](https://github.com/Insoulum/lucariomorph-server) repository;
+* `serviceTokens` — the write tokens of mirrors (see below); filled in automatically,
+  no need to edit by hand;
+* for players to see each other, their mirror lists must share a common mirror.
 
-### Защита записи (с 1.4.0)
+### Record protection (since 1.4.0)
 
-Без защиты любой игрок, зная ваш UUID, может «нарисовать» вам чужой образ на зеркале.
-С 1.4.0 запись привязывается к вашему аккаунту автоматически — как только зеркало
-отвечает 401 («запись защищена»), мод сам доказывает владение через session-серверы
-Mojang (тот же механизм, которым ванильный сервер проверяет игроков) — никакой команды
-вводить не нужно:
+Without protection, any player who knows your UUID can "draw" someone else's morph onto you on a mirror.
+Since 1.4.0 the record is bound to your account automatically — as soon as a mirror answers 401
+("record protected"), the mod itself proves ownership through the Mojang session servers (the same
+mechanism a vanilla server uses to verify players) — no command needs to be typed:
 
-1. мод проходит цепочку challenge → join → verify;
-2. `accessToken` при этом уходит **только напрямую в Mojang по HTTPS** — зеркала его не видят;
-3. зеркала выдают токен записи и дальше принимают ваши PUT/DELETE только с ним.
+1. the mod runs the challenge → join → verify chain;
+2. the `accessToken` is sent **only directly to Mojang over HTTPS** — mirrors never see it;
+3. mirrors issue a write token and afterwards accept your PUT/DELETE only with it.
 
-Если попытка не удалась (зеркало недоступно, Mojang не отвечает), мод повторяет сам:
-две попытки с паузой 30 секунд, две с паузой минута, затем каждые 5 минут — пока не
-получится. В чат пишется одно сообщение при старте ретраев и одно при успехе.
+If an attempt fails (the mirror is unreachable, Mojang doesn't answer), the mod retries by itself:
+two attempts with a 30-second pause, two with a one-minute pause, then every 5 minutes — until it
+succeeds. One message is posted to chat when the retries start and one on success.
 
-Что это даёт:
-* чужой UUID защитить нельзя, ваш — никто больше не изменит;
-* **конфиг можно удалять**: при следующем запуске мод сам перепройдёт авторизацию
-  и получит тот же токен — запись не теряется;
-* защита опциональна (opt-in): кто не авторизовался — пишет в зеркало как раньше;
-* работает только с лицензионной сессией Minecraft; на пиратских клиентах авторизация
-  недоступна (Mojang отклонит join), но весь остальной синк продолжит работать;
-* всё отключается `"autoAuth": false` в конфиге — тогда session-токен Mojang
-  не используется вовсе.
+What this gives you:
+* a foreign UUID cannot be protected, and yours cannot be changed by anyone else;
+* **the config can be deleted**: at the next launch the mod will re-run the authorization by itself
+  and get the same token — the record is not lost;
+* protection is optional (opt-in): whoever hasn't authorized writes to the mirror as before;
+* works only with a licensed Minecraft session; on offline clients authorization is unavailable
+  (Mojang will reject the join), but all the rest of the sync keeps working;
+* everything can be disabled with `"autoAuth": false` in the config — then the Mojang session
+  token is not used at all.
 
-Подробности развёртывания: [README репозитория lucariomorph-server](https://github.com/Insoulum/lucariomorph-server).
+Deployment details: [the lucariomorph-server repository README](https://github.com/Insoulum/lucariomorph-server).
 
-## Команды
-| Команда | Что делает |
+## Commands
+| Command | What it does |
 |---|---|
-| `/lucario` | превратиться в Лукарио / вернуться (переключатель) |
-| `/lucario <вариант>` | выбрать костюм коротким именем: `/lucario captain`, `/lucario chef`, `/lucario mega` (Tab подсказывает список) |
-| `/lucario mega` | Мега-Лукарио (шило вместо отдельной команды `/mega`) |
-| `/lucario <вариант> shiny` или `/lucario <вариант>_shiny` | шайни-текстура — например `/lucario captain shiny` = `/lucario captain_shiny`; просто `/lucario shiny` — шайни по умолчанию |
-| `/lucario off` | снова стать обычным игроком |
-| `/riolu` | превратиться в Риолу / вернуться (переключатель) |
-| `/riolu <вариант>` | короткие имена: `pmd`, `psmd` (и `/riolu pmd shiny`); просто `/riolu shiny` — шайни-Риолу |
+| `/lucario` | turn into Lucario / turn back (a toggle) |
+| `/lucario <variant>` | pick a costume by its short name: `/lucario captain`, `/lucario chef`, `/lucario mega` (Tab lists the options) |
+| `/lucario mega` | Mega Lucario (instead of a separate `/mega` command) |
+| `/lucario <variant> shiny` or `/lucario <variant>_shiny` | the shiny texture — e.g. `/lucario captain shiny` = `/lucario captain_shiny`; just `/lucario shiny` — the default shiny |
+| `/lucario off` | become a regular player again |
+| `/riolu` | turn into Riolu / turn back (a toggle) |
+| `/riolu <variant>` | short names: `pmd`, `psmd` (and `/riolu pmd shiny`); just `/riolu shiny` — shiny Riolu |
 
-Слова в аргументе можно разделять и пробелом, и подчёркиванием: `/lucario costume party` = `/lucario costumeparty`.
-Полные имена вариантов тоже работают (обратная совместимость): `lucariocaptain`, `lucariomega_shiny` и т. д.
+Words in the argument can be separated by spaces as well as underscores: `/lucario costume party` = `/lucario costumeparty`.
+Full variant names also work (backwards compatibility): `lucariocaptain`, `lucariomega_shiny`, etc.
 
-Короткие имена Лукарио: cafe, captain, chef, concert, costumeparty, holiday, martialarts, mega, pmd, psmd, ruins, space
-(без аргумента — обычный Лукарио). У Риолу: pmd, psmd (без аргумента — обычный Риолу).
+Lucario short names: cafe, captain, chef, concert, costumeparty, holiday, martialarts, mega, pmd, psmd, ruins, space
+(no argument — regular Lucario). Riolu: pmd, psmd (no argument — regular Riolu).
 
-Команды работают в двух режимах: на сервере с модом — как серверные (выбор сохраняется в папке
-мира, `lucariomod_morphs.json`), на сервере без мода — как клиентские (образ запоминается
-в конфиге клиента и передаётся через сервис синхронизации). Fabric сам разруливает приоритет:
-если сервер знает команду — выполняется серверная версия.
+The commands work in two modes: on a modded server — as server-side ones (the choice is saved in the world
+folder, `lucariomod_morphs.json`), on a server without the mod — as client-side ones (the morph is remembered
+in the client config and passed through the sync service). Fabric resolves the priority itself:
+if the server knows the command, the server-side version runs.
 
-## Сборка из исходников
-Нужен JDK 25 (его требует сама игра 26.3) и интернет (при первой сборке Gradle скачает Minecraft/Fabric).
-1. `./gradlew build` → готовый мод: `build/libs/lucariomorph-fabric-<версия Minecraft>-<версия мода>.jar`
-   (версия берётся из `gradle.properties`; для проверки без установки: `./gradlew runClient`).
-2. Перед сборкой сверьте версии в `gradle.properties` со страницей https://fabricmc.net/develop
-   (особенно `yarn_mappings`).
+## Building from source
+Requires JDK 25 (the game 26.3 itself demands it) and internet (on the first build Gradle will download
+Minecraft/Fabric).
+1. `./gradlew build` → the ready mod: `build/libs/lucariomorph-fabric-<Minecraft version>-<mod version>.jar`
+   (the version is taken from `gradle.properties`; to try it without installing: `./gradlew runClient`).
+2. Before building, check the versions in `gradle.properties` against https://fabricmc.net/develop
+   (especially `yarn_mappings`).
 
-## Что реализовано
-* **Рука от первого лица:** вместо руки Стива рисуется рука Лукарио/Риолу (с их текстурой). Качание, взмах и
-  положение берутся из ванильного рендера руки, поэтому всё двигается как обычно.
-* **Удар / ломание блока:** в третьем лице (и у других игроков) рука Лукарио машет вперёд, корпус слегка скручивается.
-  Работает для атаки, ломания и установки блоков, использования предметов.
-* **Приседание (Shift):** корпус наклоняется вперёд, ноги сгибаются, тело опускается, ступни остаются на земле.
-  Углы считаются по длинам ног самой модели (`LucarioModel.computeCrouch`), поэтому подходит и Лукарио, и Риолу.
-* **Предметы в руках:** предмет рисуется в кисти Лукарио/Риолу (обе руки: правая и левая).
-* **Плавание / ползание / полёт:** обе руки вытягиваются вперёд (`ARMS_FORWARD_*` в `LucarioRenderer`).
-* **Элитры:** если в слоте нагрудника элитры, на спине рисуются ванильные крылья (текстура ванильная; кастомные
-  текстуры элитр не подхватываются). При полёте крылья раскрываются, тело вытягивается по ходу движения, руки вперёд,
-  ноги сзади. Размер и положение — `ELYTRA_*`. Текстура берётся как в ваниле: элитры из скина, иначе плащ игрока.
-* **Риолу и Мега-Лукарио:** ассеты Риолу (модель, анимации, текстуры) взяты из пака; Мега-Лукарио включается командой `/lucario mega`.
-* Рендер: Bedrock `.geo.json` → ModelPart (включая кубы с собственным поворотом, mirror, inflate).
-* Анимации: ground_idle, ground_walk, ground_run (бег), water_idle / water_swim (в воде), sleep, blink (моргание).
-  Выражения Molang (`math.sin/abs/clamp`, `q.anim_time`) считаются встроенным мини-интерпретатором.
-* Голова следит за камерой; имя игрока, тень, мигание при уроне работают как обычно.
-* Синхронизация по сети (сервер → все клиенты), сохранение в мир.
-* **Серверы без мода:** образ запоминается в конфиге клиента и синхронизируется через
-  внешний HTTP-сервис с поддержкой зеркал (`config/lucariomorph.json`, репозиторий
-  [`lucariomorph-server`](https://github.com/Insoulum/lucariomorph-server)); запись
-  автоматически обновляется «пульсом» раз в `heartbeatMinutes` минут.
-* **Защита записи** (автоматически): владение аккаунтом доказывается через session-серверы
-  Mojang (challenge → join → verify), зеркала хранят токен и требуют его при записи.
-  Токен восстановим: после удаления конфига повторная авторизация возвращает тот же.
+## What is implemented
+* **First-person arm:** instead of Steve's arm, the Lucario/Riolu arm is drawn (with their texture).
+  The swinging, the swing and the position are taken from the vanilla arm renderer, so everything moves as usual.
+* **Punching / breaking a block:** in third person (and for other players) the Lucario arm swings forward,
+  the torso twists slightly. Works for attacking, breaking and placing blocks, and using items.
+* **Sneaking (Shift):** the torso leans forward, the legs bend, the body lowers, the feet stay on the ground.
+  The angles are computed from the leg lengths of the model itself (`LucarioModel.computeCrouch`),
+  so it fits both Lucario and Riolu.
+* **Held items:** an item is drawn in the Lucario/Riolu hand (both hands: right and left).
+* **Swimming / crawling / flying:** both arms stretch forward (`ARMS_FORWARD_*` in `LucarioRenderer`).
+* **Elytra:** if the chestplate slot holds an elytra, vanilla wings are drawn on the back (vanilla texture;
+  custom elytra textures are not picked up). In flight the wings spread, the body stretches along the
+  motion, arms forward, legs behind. Size and position — `ELYTRA_*`. The texture is taken like in vanilla:
+  elytra from the skin, otherwise the player's cape.
+* **Riolu and Mega Lucario:** Riolu assets (model, animations, textures) are taken from the pack;
+  Mega Lucario is enabled with `/lucario mega`.
+* Rendering: Bedrock `.geo.json` → ModelPart (including cubes with their own rotation, mirror, inflate).
+* Animations: ground_idle, ground_walk, ground_run (running), water_idle / water_swim (in water), sleep, blink.
+  Molang expressions (`math.sin/abs/clamp`, `q.anim_time`) are evaluated by a built-in mini-interpreter.
+* The head follows the camera; the player name, the shadow and the hurt flash work as usual.
+* Network sync (server → all clients), saved to the world.
+* **Servers without the mod:** the morph is remembered in the client config and synced through an
+  external HTTP service with mirror support (`config/lucariomorph.json`, the
+  [`lucariomorph-server`](https://github.com/Insoulum/lucariomorph-server) repository); the record
+  is refreshed automatically by the "pulse" every `heartbeatMinutes` minutes.
+* **Record protection** (automatic): account ownership is proven through the Mojang session servers
+  (challenge → join → verify), mirrors store the token and require it on write.
+  The token is recoverable: after deleting the config, re-authorization returns the same one.
 
-## Известные ограничения
-* Хитбокс остаётся игрока (0.6×1.8); модель масштабируется под 1.8 блока.
-* Броня и плащ на Лукарио/Риолу не рисуются (скелет не совпадает со Стивом).
-* Предмет в руке не меняет позу руки: лук, арбалет, еду, щит и т. п. Лукарио держит просто в кисти.
-* Риолу рисуется в «честном» масштабе (меньше Лукарио, ~1 блок), а хитбокс и камера остаются игрока (0.6×1.8).
-* Плавание/ползание: простое поворачивание тела; сон и падение при смерти — без особых поз.
-* Эмоции лица (злость, улыбка, открытый рот и т. д.) скрыты — в оригинале их включают отдельные анимации.
-  Список скрываемых костей — `LucarioModel.hiddenByDefault`.
+## Known limitations
+* The hitbox stays the player's (0.6×1.8); the model is scaled to 1.8 blocks.
+* Armor and the cape are not drawn on Lucario/Riolu (the skeleton doesn't match Steve's).
+* A held item doesn't change the arm pose: a bow, crossbow, food, shield etc. — Lucario simply holds it in the hand.
+* Riolu is rendered at an "honest" scale (smaller than Lucario, ~1 block), while the hitbox and camera stay
+  the player's (0.6×1.8).
+* Swimming/crawling: simple body rotation; sleeping and falling on death have no special poses.
+* Face emotions (anger, a smile, an open mouth, etc.) are hidden — in the original they are enabled by
+  separate animations. The list of hidden bones is `LucarioModel.hiddenByDefault`.
 
-## Если что-то выглядит не так
-* Рука от первого лица слишком большая/маленькая/торчит в сторону — `FIRST_PERSON_ARM_SCALE` и
-  `FIRST_PERSON_ARM_ROLL_DEG` в `LucarioRenderer`.
-* Предмет в руке слишком большой/смещён — `HELD_ITEM_SCALE_*`, `HAND_ITEM_OFFSET_*` и `HELD_ITEM_INWARD_*` в `LucarioRenderer` (и порядок поворотов в `renderHeldItem`).
-* Приседание слишком глубокое/мелкое — `CROUCH_HIP_DEG`, `CROUCH_TORSO_LEAN_DEG`, `CROUCH_GROUND_FIX` в `LucarioModel`.
-* Взмах слишком резкий/слабый — `SWING_ARM_PITCH`, `SWING_BODY_TWIST` в `LucarioRenderer`.
-* Элитры сидят слишком далеко от спины/врезаются в тело — `ELYTRA_BACK_*` в `LucarioRenderer` (отдельно для Лукарио, Меги и Риолу); размер крыльев — `ELYTRA_SCALE_*`.
-* Ноги/руки выгибаются «не в ту сторону» — в `LucarioModel` измените `ROT_SIGN_X / Y / Z` на `-1f`.
-* Лукарио слишком большой/маленький — `TARGET_HEIGHT_BLOCKS` в `LucarioModel`.
-* Модель "левитирует" над землёй или ступни утопают — `GROUND_SINK_PX` в `LucarioRenderer`
-  (сколько пикселей 1/16 блока опускать модель в позах стоя/ходьба/присед; в полёте, плавании и транспорте не применяется).
-* Руки/хвост «ездят» не туда при анимации — знак смещения `position` в `LucarioRenderer.pose`
-  (строка `part.setOrigin(...)`): поменяйте `b[0] + px` на `b[0] - px`.
+## If something looks off
+* The first-person arm is too big/small/sticks sideways — `FIRST_PERSON_ARM_SCALE` and
+  `FIRST_PERSON_ARM_ROLL_DEG` in `LucarioRenderer`.
+* The held item is too big/shifted — `HELD_ITEM_SCALE_*`, `HAND_ITEM_OFFSET_*` and `HELD_ITEM_INWARD_*`
+  in `LucarioRenderer` (and the rotation order in `renderHeldItem`).
+* Sneaking is too deep/shallow — `CROUCH_HIP_DEG`, `CROUCH_TORSO_LEAN_DEG`, `CROUCH_GROUND_FIX` in `LucarioModel`.
+* The swing is too sharp/weak — `SWING_ARM_PITCH`, `SWING_BODY_TWIST` in `LucarioRenderer`.
+* The elytra sits too far from the back/clips into the body — `ELYTRA_BACK_*` in `LucarioRenderer`
+  (separately for Lucario, Mega and Riolu); the wing size — `ELYTRA_SCALE_*`.
+* Legs/arms bend "the wrong way" — in `LucarioModel` change `ROT_SIGN_X / Y / Z` to `-1f`.
+* Lucario is too big/small — `TARGET_HEIGHT_BLOCKS` in `LucarioModel`.
+* The model "levitates" above the ground or the feet sink in — `GROUND_SINK_PX` in `LucarioRenderer`
+  (how many 1/16-block pixels to lower the model in the standing/walking/sneaking poses; not applied in
+  flight, swimming and vehicles).
+* Arms/tail "drift" the wrong way during animation — the sign of the `position` offset in
+  `LucarioRenderer.pose` (the `part.setOrigin(...)` line): change `b[0] + px` to `b[0] - px`.
 
-## Лицензии и авторство
-* **Код мода** — [MIT](LICENSE).
-* **Модели, текстуры и анимации** — из пака [*Lucario Overhaul v1.2.1*](https://modrinth.com/datapack/lucario-overhaul)
-  от **JoeSeff**, распространяемого по лицензии MIT. Используются в модифицированном виде с сохранением авторства —
-  спасибо JoeSeff за отличный пак!
-* **Lucario и Riolu** — персонажи © Nintendo / Game Freak / Creatures Inc. Этот мод — неофициальный фан-проект,
-  не связан с Nintendo, Game Freak, The Pokémon Company и Mojang/Microsoft.
+## Licenses and attribution
+* **The mod code** — [MIT](LICENSE).
+* **Models, textures and animations** — from the [*Lucario Overhaul v1.2.1*](https://modrinth.com/datapack/lucario-overhaul)
+  pack by **JoeSeff**, distributed under the MIT license. Used in modified form with attribution kept —
+  thanks to JoeSeff for a great pack!
+* **Lucario and Riolu** — characters © Nintendo / Game Freak / Creatures Inc. This mod is an unofficial
+  fan project, not affiliated with Nintendo, Game Freak, The Pokémon Company or Mojang/Microsoft.

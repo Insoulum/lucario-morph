@@ -3,7 +3,7 @@
   "id": "lucariomod",
   "version": "1.4.2",
   "name": "Lucario Morph",
-  "description": "Играйте за Лукарио, Мега-Лукарио или Риолу: команды /lucario и /riolu заменяют модель игрока (модели и анимации из Lucario Overhaul by JoeSeff). Работает и на серверах без мода: образы синхронизируются через внешний сервис (можно добавить своё зеркало в конфиге), а запись образа автоматически защищается от подмены авторизацией через Mojang.",
+  "description": "Play as Lucario, Mega Lucario or Riolu: the /lucario and /riolu commands replace the player model (models and animations from Lucario Overhaul by JoeSeff). Works on servers without the mod too: morphs sync through an external service (you can add your own mirror in the config), and your morph record is automatically protected against spoofing via Mojang authentication.",
   "authors": [
     "Insoulum"
   ],
