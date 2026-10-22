@@ -26,9 +26,12 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Function;
 
 /**
@@ -137,7 +140,16 @@ public final class LucarioModel {
 
         MeshDefinition data = new MeshDefinition();
         Map<String, PartDefinition> built = new HashMap<>();
-        for (String name : defs.keySet()) buildBone(name, defs, built, data.getRoot(), 0);
+        // Габариты (после нормализации и inflate) всех обычных кубов — для поиска кубов-близнецов
+        Set<String> positiveBoxes = new HashSet<>();
+        for (JsonObject b : defs.values()) {
+            if (!b.has("cubes")) continue;
+            for (JsonElement ce : b.getAsJsonArray("cubes")) {
+                JsonObject c = ce.getAsJsonObject();
+                if (!isNegativeCube(c)) positiveBoxes.add(inflatedBoxKey(c));
+            }
+        }
+        for (String name : defs.keySet()) buildBone(name, defs, built, data.getRoot(), 0, positiveBoxes);
 
         ModelPart root = LayerDefinition.create(data, texW, texH).bakeRoot();
 
@@ -250,7 +262,8 @@ public final class LucarioModel {
     }
 
     private static PartDefinition buildBone(String name, Map<String, JsonObject> defs,
-                                            Map<String, PartDefinition> built, PartDefinition root, int depth) {
+                                            Map<String, PartDefinition> built, PartDefinition root, int depth,
+                                            Set<String> positiveBoxes) {
         PartDefinition done = built.get(name);
         if (done != null) return done;
         JsonObject b = defs.get(name);
@@ -259,7 +272,7 @@ public final class LucarioModel {
         PartDefinition parentData = root;
         double[] parentJavaPivot = {0, 0, 0};
         if (parentName != null && defs.containsKey(parentName) && depth < 64) {
-            parentData = buildBone(parentName, defs, built, root, depth + 1);
+            parentData = buildBone(parentName, defs, built, root, depth + 1, positiveBoxes);
             parentJavaPivot = javaPivot(defs.get(parentName));
         }
 
@@ -273,7 +286,7 @@ public final class LucarioModel {
             for (JsonElement ce : b.getAsJsonArray("cubes")) {
                 JsonObject c = ce.getAsJsonObject();
                 if (hasRotation(c)) rotatedCubes.add(c);
-                else addCube(pb, c, bp[0], bp[1], bp[2]);
+                else if (!isShadowTwin(c, positiveBoxes)) addCube(pb, c, bp[0], bp[1], bp[2]);
             }
         }
 
@@ -298,9 +311,53 @@ public final class LucarioModel {
         return self;
     }
 
+    /** Есть ли у куба отрицательный размер ("вывернутый" куб из Blockbench). */
+    private static boolean isNegativeCube(JsonObject c) {
+        for (double s : vec(c, "size")) {
+            if (s < 0) return true;
+        }
+        return false;
+    }
+
+    /** Габариты куба после нормализации и inflate (ключ для поиска совпадающих близнецов). */
+    private static String inflatedBoxKey(JsonObject c) {
+        double[] o = vec(c, "origin");
+        double[] s = vec(c, "size");
+        double inflate = c.has("inflate") ? c.get("inflate").getAsDouble() : 0;
+        double[] lo = new double[3], hi = new double[3];
+        for (int i = 0; i < 3; i++) {
+            lo[i] = Math.min(o[i], o[i] + s[i]) - inflate;
+            hi[i] = Math.max(o[i], o[i] + s[i]) + inflate;
+        }
+        return String.format(Locale.ROOT, "%.2f,%.2f,%.2f,%.2f,%.2f,%.2f",
+                lo[0], lo[1], lo[2], hi[0], hi[1], hi[2]);
+    }
+
+    /**
+     * Куб-близнец с отрицательным размером (двусторонняя оболочка Blockbench: шляпа капитана, шарф,
+     * манжеты). Bedrock рисует его зеркально внутрь, а в Java-модели после нормализации он точно
+     * совпал бы с обычным кубом — копланарные грани мерцают ("переливание текстур"). Такой близнец
+     * пропускаем: внешний вид даёт обычный куб-оригинал.
+     */
+    private static boolean isShadowTwin(JsonObject c, Set<String> positiveBoxes) {
+        return isNegativeCube(c) && positiveBoxes.contains(inflatedBoxKey(c));
+    }
+
     private static void addCube(CubeListBuilder pb, JsonObject c, double px, double py, double pz) {
         double[] o = vec(c, "origin");
         double[] s = vec(c, "size");
+        // Blockbench экспортирует "вывернутые" кубы с отрицательным размером (двусторонние оболочки:
+        // шляпа капитана, шарф на holiday, манжеты рук). Bedrock рисует такой куб как обычный ящик
+        // по AABB (origin..origin+size), а Java-модель с отрицательными размерами выворачивает нормали
+        // (грани видны то с одной, то с другой стороны — "переливание") и зеркалит UV-развёртку.
+        // Нормализуем к положительному размеру, сохранив габариты и точку в пространстве.
+        double[] lo = new double[3], sz = new double[3];
+        for (int i = 0; i < 3; i++) {
+            lo[i] = Math.min(o[i], o[i] + s[i]);
+            sz[i] = Math.abs(s[i]);
+        }
+        o = lo;
+        s = sz;
         double inflate = c.has("inflate") ? c.get("inflate").getAsDouble() : 0;
         JsonArray uv = c.getAsJsonArray("uv");
         boolean mirror = c.has("mirror") && c.get("mirror").getAsBoolean();

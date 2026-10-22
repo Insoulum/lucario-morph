@@ -5,6 +5,7 @@ import com.mojang.brigadier.suggestion.SuggestionsBuilder;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 /**
  * Список доступных образов (Лукарио и Риолу). Суффикс "_shiny" включает шайни-текстуру.
@@ -29,6 +30,9 @@ public final class Variants {
             "lucariopmd", "lucariopsmd", "lucarioruins", "lucariospace");
 
     public static final List<String> RIOLU = List.of("riolu", "riolupmd", "riolupsmd");
+
+    /** Образы, у которых элитры не рисуются: у костюмного Лукарио уже есть свои крылья на спине. */
+    private static final Set<String> NO_ELYTRA = Set.of("lucariocostumeparty");
 
     public static final List<String> ALL;
 
@@ -105,6 +109,11 @@ public final class Variants {
 
     public static boolean isLucario(String v) {
         return v != null && LUCARIO.contains(baseOf(normalize(v)));
+    }
+
+    /** Не рисовать элитры в этом образе (у костюма свои крылья — они конфликтуют с элитрами). */
+    public static boolean hidesElytra(String v) {
+        return v != null && NO_ELYTRA.contains(baseOf(normalize(v)));
     }
 
     /** Короткое имя варианта (без префикса семейства): lucariocaptain -> "captain", riolupmd -> "pmd". */

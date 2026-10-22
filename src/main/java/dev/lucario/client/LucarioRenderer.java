@@ -73,10 +73,11 @@ public final class LucarioRenderer {
     private static final double FLIGHT_LEG_RATE = 1.25;
     /** На сколько единиц Bedrock Риолу приподнят в лодке/вагонетке и т.п. (иначе выглядывает из сиденья едва ли). */
     private static final float RIOLU_RIDE_LIFT = 3.0f;
-    /** На сколько пикселей (1/16 блока) опустить модель в "наземных" позах (стоя/ходьба/присед),
+    /** На сколько пикселей (1/16 блока) опустить модель в "наземных" позах (стоя/ходьба),
      *  чтобы подошвы не "левитировали" над землёй. Поднимите значение, если модель всё ещё парит,
-     *  уменьшите или сделайте 0, если ступни начали утопать. */
-    private static final float GROUND_SINK_PX = 1.5f;
+     *  уменьшите или сделайте 0, если ступни начали утопать. В приседе не применяется — там своя
+     *  точная посадка (crouchDrop), а общий сдвиг топил сложенные ступни в землю. */
+    private static final float GROUND_SINK_PX = 0.5f;
 
     private static final Identifier ELYTRA_TEXTURE = Identifier.withDefaultNamespace("textures/entity/equipment/wings/elytra.png");
     private static Model<LivingEntityRenderState> elytraModel;
@@ -118,10 +119,12 @@ public final class LucarioRenderer {
         matrices.translate(0.0F, -(24.0F - model.feetY) / 16.0F, 0.0F);
         // Риолу в транспорте (лодка, вагонетка и т.д.) сидит чуть выше, чтобы не тонусть в сиденье
         boolean riding = !state.hasPose(Pose.SLEEPING) && !gliding && access.lucario$isRiding();
-        // "Наземные" позы (стоя/ходьба/присед): чуть опускаем модель, чтобы не левитировала над землёй.
-        // В полёте/плавании модель повёрнута горизонтально, а в транспорте есть своя посадка — там не трогаем.
+        // "Наземные" позы (стоя/ходьба): чуть опускаем модель, чтобы не левитировала над землёй.
+        // В полёте/плавании модель повёрнута горизонтально, в транспорте своя посадка, а в приседе
+        // crouchDrop уже сажает подошвы точно на землю — лишний сдвиг топил ноги в землю.
         boolean sleeping = state.hasPose(Pose.SLEEPING);
-        if (GROUND_SINK_PX != 0.0F && !sleeping && !gliding && !riding && !state.hasPose(Pose.SWIMMING)) {
+        boolean crouching = state.hasPose(Pose.CROUCHING);
+        if (GROUND_SINK_PX != 0.0F && !sleeping && !gliding && !riding && !crouching && !state.hasPose(Pose.SWIMMING)) {
             // после scale(-1,-1,1) локальный +Y смотрит вниз; делим на RENDER_SCALE, чтобы константа
             // означала видимые пиксели мира (1/16 блока), а не единицы масштабированного фрейма
             matrices.translate(0.0F, GROUND_SINK_PX / 16.0F / LucarioModel.RENDER_SCALE, 0.0F);
@@ -142,7 +145,8 @@ public final class LucarioRenderer {
             renderHeldItem(model, "hand_right", true, armed.rightHandItemState, itemScale, itemOffset, itemInward, matrices, collector, light, overlay, state.outlineColor);
             renderHeldItem(model, "hand_left", false, armed.leftHandItemState, itemScale, itemOffset, itemInward, matrices, collector, light, overlay, state.outlineColor);
         }
-        if (access.lucario$hasElytra()) {
+        // Элитры рисуем всем, кроме образов со "своими" крыльями на спине (костюмный Лукарио).
+        if (access.lucario$hasElytra() && !Variants.hidesElytra(variantKey)) {
             renderElytra(model, riolu, Variants.isMega(variantKey), gliding, state.hasPose(Pose.CROUCHING), access.lucario$getElytraTexture(), state, matrices, collector, light, overlay);
         }
         matrices.popPose();
