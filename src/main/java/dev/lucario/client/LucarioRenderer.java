@@ -98,11 +98,11 @@ public final class LucarioRenderer {
         pose(model, state, access);
 
         matrices.pushPose();
-        matrices.rotateDegrees(Axis.YP, 180.0F - state.bodyRot);
+        matrices.mulPose(Axis.YP.rotationDegrees(180.0F - state.bodyRot));
         boolean gliding = access.lucario$isGliding();
         if (state.hasPose(Pose.SWIMMING) || gliding) {
             float angle = (state.isInWater || gliding) ? -90.0F - state.xRot : -90.0F;
-            matrices.rotateDegrees(Axis.XP, angle);
+            matrices.mulPose(Axis.XP.rotationDegrees(angle));
             matrices.translate(0.0F, -1.0F, 0.3F);
         }
         matrices.scale(-1.0F, -1.0F, 1.0F);
@@ -127,7 +127,8 @@ public final class LucarioRenderer {
 
         Identifier texture = Variants.isShiny(variantKey) ? model.shinyTexture : model.texture;
         int overlay = LivingEntityRenderer.getOverlayCoords(state, 0.0F);
-        collector.submitModel(model.entityModel, state, matrices, texture, light, overlay, state.outlineColor);
+        // 26.2: submitModel требует завершающий параметр CrumblingOverlay (в 26.3 добавлен перегруженный вариант без него)
+        collector.submitModel(model.entityModel, state, matrices, texture, light, overlay, state.outlineColor, null);
 
         // предметы в руках — в той же системе координат, что и модель
         float itemScale = riolu ? HELD_ITEM_SCALE_RIOLU : (Variants.isMega(variantKey) ? HELD_ITEM_SCALE_MEGA : HELD_ITEM_SCALE_LUCARIO);
@@ -324,7 +325,7 @@ public final class LucarioRenderer {
             ModelPart p = m.parts.get(n);
             matrices.translate(p.x / 16.0F, p.y / 16.0F, p.z / 16.0F);
             if (p.xRot != 0.0F || p.yRot != 0.0F || p.zRot != 0.0F) {
-                matrices.rotate(new Quaternionf().rotationZYX(p.zRot, p.yRot, p.xRot));
+                matrices.mulPose(new Quaternionf().rotationZYX(p.zRot, p.yRot, p.xRot));
             }
         }
     }
@@ -352,10 +353,10 @@ public final class LucarioRenderer {
         // вернуть предмету обычный размер (модель масштабирована RENDER_SCALE) и уменьшить под размер персонажа
         float k = itemScale / LucarioModel.RENDER_SCALE;
         matrices.scale(k, k, k);
-        matrices.rotateDegrees(Axis.ZP, right ? 90.0F : -90.0F);
+        matrices.mulPose(Axis.ZP.rotationDegrees(right ? 90.0F : -90.0F));
         // дальше — как в ванильном слое предметов
-        matrices.rotateDegrees(Axis.XP, -90.0F);
-        matrices.rotateDegrees(Axis.YP, 180.0F);
+        matrices.mulPose(Axis.XP.rotationDegrees(-90.0F));
+        matrices.mulPose(Axis.YP.rotationDegrees(180.0F));
         matrices.translate(0.0F, 0.125F, 0.0F);
         item.submit(matrices, collector, light, overlay, outlineColor);
         matrices.popPose();
@@ -393,7 +394,8 @@ public final class LucarioRenderer {
         float k = (riolu ? ELYTRA_SCALE_RIOLU : ELYTRA_SCALE_LUCARIO) / LucarioModel.RENDER_SCALE;
         matrices.scale(k, k, k);
         matrices.translate(0.0F, 0.0F, 0.125F);
-        collector.submitModel(m.elytraModel, state, matrices, texture != null ? texture : ELYTRA_TEXTURE, light, overlay, state.outlineColor);
+        // 26.2: завершающий CrumblingOverlay = null (см. выше)
+        collector.submitModel(m.elytraModel, state, matrices, texture != null ? texture : ELYTRA_TEXTURE, light, overlay, state.outlineColor, null);
         matrices.popPose();
     }
 

@@ -53,7 +53,8 @@ public abstract class AvatarRendererMixin {
         access.lucario$setSprinting(entity.isSprinting());
 
         // Взмах рукой: удар, ломание блока, установка блока, использование предмета.
-        access.lucario$setSwing(entity.getSwingAnimation(tickProgress));
+        // 26.2: LivingEntity.getAttackAnim(partialTick) — в 26.3 метод переименован в getSwingAnimation.
+        access.lucario$setSwing(entity.getAttackAnim(tickProgress));
         HumanoidArm swingArm = entity.getMainArm();
         if (entity.getUsedItemHand() == InteractionHand.OFF_HAND) swingArm = swingArm.getOpposite();
         access.lucario$setSwingRight(swingArm == HumanoidArm.RIGHT);
