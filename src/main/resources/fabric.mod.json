@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "lucariomod",
-  "version": "1.4.3",
+  "version": "${version}",
   "name": "Lucario Morph",
   "description": "Play as Lucario, Mega Lucario or Riolu: the /lucario and /riolu commands replace the player model (models and animations from Lucario Overhaul by JoeSeff). Works on servers without the mod too: morphs sync through an external service (you can add your own mirror in the config), and your morph record is automatically protected against spoofing via Mojang authentication.",
   "authors": [
