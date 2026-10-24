@@ -13,12 +13,19 @@ base {
 }
 
 repositories {
+    // Mod Menu (optional integration): compile against it, but it is NOT required
+    // at runtime — the "modmenu" entrypoint class is only ever loaded by Mod Menu itself.
+    maven { name = 'TerraformersMC'; url = 'https://maven.terraformersmc.com/releases/' }
 }
 
 dependencies {
     minecraft "com.mojang:minecraft:${project.minecraft_version}"
     implementation "net.fabricmc:fabric-loader:${project.loader_version}"
     implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+    // 22.x requires MC >= 26.4; 21.0.0 targets 26.3.
+    // Plain compileOnly: MC 26.3 ships unobfuscated, so no remap pass is needed,
+    // and the jar must NOT leak into runtime deps (Mod Menu stays optional).
+    compileOnly "com.terraformersmc:modmenu:21.0.0"
 }
 
 processResources {

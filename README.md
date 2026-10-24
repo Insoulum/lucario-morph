@@ -16,9 +16,9 @@ The Lucario look and animations are visible to every player on the server who ha
 Also available in: [Русском](README.ru.md).
 
 ## Installation
-Requires Minecraft 26.3, Fabric Loader ≥ 0.19.5 and [Fabric API](https://modrinth.com/mod/fabric-api) 0.164.0+26.3.
+Requires Minecraft 26.3, Fabric Loader ≥ 0.19.5 and [Fabric API](https://modrinth.com/mod/fabric-api) 0.165.0+26.3.
 1. Install Fabric Loader via the official installer: https://fabricmc.net/use
-2. Put `lucariomorph-fabric-26.3-1.4.2.jar` and Fabric API into the `mods` folder.
+2. Put `lucariomorph-fabric-26.3-1.5.1.jar` and Fabric API into the `mods` folder.
 3. Then pick one of two options:
    * **Modded server** (classic mode): put the jar on the server as well. The `/lucario` and `/riolu`
      commands are registered by the server, the choice is saved in the world folder, and the morph is visible
@@ -146,8 +146,13 @@ and repeat `./gradlew build`.
 ## What is implemented
 * **First-person arm:** instead of Steve's arm, the Lucario/Riolu arm is drawn (with their texture).
   The swinging, the swing and the position are taken from the vanilla arm renderer, so everything moves as usual.
-* **Punching / breaking a block:** in third person (and for other players) the Lucario arm swings forward,
-  the torso twists slightly. Works for attacking, breaking and placing blocks, and using items.
+* **Punching:** the full strike pose (arm swing, torso twist, chest lean, the paw closes into a fist)
+  plays on left-click attacks — hitting mobs and air punches. Breaking blocks uses the same arm swing;
+  right-click item use (doors, food, placing) keeps only a plain vanilla-like arm swing.
+* **Battle stance:** after attacking or taking damage Lucario holds a combat stance for ~2 seconds;
+  it crossfades in/out and works while walking (the legs blend stance ↔ walk).
+* **Dance emote (J):** loops until toggled off or interrupted (moving, mounting, water, elytra, damage);
+  the camera switches to third person for the duration and returns afterwards.
 * **Sneaking (Shift):** the torso leans forward, the legs bend, the body lowers, the feet stay on the ground.
   The angles are computed from the leg lengths of the model itself (`LucarioModel.computeCrouch`),
   so it fits both Lucario and Riolu.
@@ -163,6 +168,11 @@ and repeat `./gradlew build`.
 * Animations: ground_idle, ground_walk, ground_run (running), water_idle / water_swim (in water), sleep, blink.
   Molang expressions (`math.sin/abs/clamp`, `q.anim_time`) are evaluated by a built-in mini-interpreter.
 * The head follows the camera; the player name, the shadow and the hurt flash work as usual.
+* **Smooth pose transitions:** every pose switch (glide, stance, dance, walk↔flight) eases through
+  exponential blend weights instead of snapping — the elytra tilt ramps up on takeoff and settles on landing.
+* **GUI:** keybinds (L — pick a form, J — dance) live in their own "Lucario Morph" category in Controls;
+  a config screen is registered in Mod Menu (sync settings, consent, keybind summary, "choose a form"
+  picker with Type/Shiny toggles that remember their state).
 * Network sync (server → all clients), saved to the world.
 * **Servers without the mod:** the morph is remembered in the client config and synced through an
   external HTTP service with mirror support (`config/lucariomorph.json`, the
@@ -171,6 +181,27 @@ and repeat `./gradlew build`.
 * **Record protection** (automatic): account ownership is proven through the Mojang session servers
   (challenge → join → verify), mirrors store the token and require it on write.
   The token is recoverable: after deleting the config, re-authorization returns the same one.
+
+## What's new in 1.5.1
+Everything below landed after the 1.4.4 release:
+* **Commands reworked:** `/lucario` without arguments now always returns to the base form (a real toggle),
+  `/lucario off` returns the normal skin; consistent for `/riolu` too, in both server and client modes.
+* **Pick a form with GUI:** key L (or Mod Menu → Settings → "choose a form") opens a picker grid with
+  all costumes, a base form and shiny toggle — no need to remember short names. Toggles persist while playing.
+* **Keybinds in their own category:** L and J are grouped under "Lucario Morph" in Controls (not Misc).
+* **Config screen in Mod Menu:** sync toggles, authorization/consent, keybind summary and a shortcut to
+  the vanilla key binds screen.
+* **Attack animation on left click only:** the dramatic strike pose ignores right-click swings;
+  using items (doors, food, placing blocks) shows a plain arm swing like vanilla.
+* **Dance emote:** loops, forces third-person camera until it ends, cancels on damage.
+* **Smooth animation blending:** elytra glide eases in/out (no more A-pose snap), battle stance and dance
+  crossfade over walk cycles, walking works during attacks and stance.
+* **Human-readable chat messages:** "You are now Lucario pmd!" (and shiny variants) instead of technical ids.
+* **Sync hardening:** the service is opt-in (nothing is sent without consent), disconnects reset all
+  client state, mirror requests jitter ±15%, the model cache is an LRU with a clear-on-reload hook.
+* **Mod metadata:** conflicts with CustomPlayerModels / SkinShifter / ReMorphed, Mod Menu suggested,
+  English + Russian translations, **JoeSeff (author of the original models, textures and animations)
+  is now credited as a co-author**.
 
 ## Known limitations
 * The hitbox stays the player's (0.6×1.8); the model is scaled to 1.8 blocks.
@@ -203,6 +234,7 @@ and repeat `./gradlew build`.
 * **The mod code** — [MIT](LICENSE).
 * **Models, textures and animations** — from the [*Lucario Overhaul v1.2.1*](https://modrinth.com/datapack/lucario-overhaul)
   pack by **JoeSeff**, distributed under the MIT license. Used in modified form with attribution kept —
-  thanks to JoeSeff for a great pack!
+  thanks to JoeSeff for a great pack! JoeSeff is credited as a co-author of this mod
+  (see `fabric.mod.json`).
 * **Lucario and Riolu** — characters © Nintendo / Game Freak / Creatures Inc. This mod is an unofficial
   fan project, not affiliated with Nintendo, Game Freak, The Pokémon Company or Mojang/Microsoft.
