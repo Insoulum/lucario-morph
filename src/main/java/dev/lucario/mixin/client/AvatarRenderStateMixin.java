@@ -16,6 +16,8 @@ public class AvatarRenderStateMixin implements LucarioStateAccess {
     @Unique
     private float lucario$swing;
     @Unique
+    private boolean lucario$strike;
+    @Unique
     private boolean lucario$swingRight = true;
     @Unique
     private boolean lucario$gliding;
@@ -27,6 +29,12 @@ public class AvatarRenderStateMixin implements LucarioStateAccess {
     private boolean lucario$riding;
     @Unique
     private dev.lucario.client.LucarioModel lucario$model;
+    @Unique
+    private float lucario$battleBlend;
+    @Unique
+    private float lucario$danceBlend;
+    @Unique
+    private float lucario$glideBlend;
 
     @Override
     public String lucario$getVariant() {
@@ -56,6 +64,16 @@ public class AvatarRenderStateMixin implements LucarioStateAccess {
     @Override
     public void lucario$setSwing(float progress) {
         this.lucario$swing = progress;
+    }
+
+    @Override
+    public boolean lucario$isStrike() {
+        return lucario$strike;
+    }
+
+    @Override
+    public void lucario$setStrike(boolean strike) {
+        this.lucario$strike = strike;
     }
 
     @Override
@@ -116,5 +134,35 @@ public class AvatarRenderStateMixin implements LucarioStateAccess {
     @Override
     public void lucario$setModel(dev.lucario.client.LucarioModel model) {
         this.lucario$model = model;
+    }
+
+    @Override
+    public float lucario$getBattleBlend() {
+        return lucario$battleBlend;
+    }
+
+    @Override
+    public void lucario$setBattleBlend(float blend) {
+        this.lucario$battleBlend = blend;
+    }
+
+    @Override
+    public float lucario$getDanceBlend() {
+        return lucario$danceBlend;
+    }
+
+    @Override
+    public void lucario$setDanceBlend(float blend) {
+        this.lucario$danceBlend = blend;
+    }
+
+    @Override
+    public float lucario$getGlideBlend() {
+        return lucario$glideBlend;
+    }
+
+    @Override
+    public void lucario$setGlideBlend(float blend) {
+        this.lucario$glideBlend = blend;
     }
 }

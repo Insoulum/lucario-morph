@@ -24,6 +24,10 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class MorphManager {
     private static final Map<UUID, String> MORPHS = new ConcurrentHashMap<>();
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
+    /** Изменения сохраняются отложено: сбрасываются не чаще раза за этот интервал и при остановке сервера. */
+    private static final long SAVE_DEBOUNCE_MS = 5000L;
+    private static volatile boolean dirty = false;
+    private static long nextSaveMs = 0L;
     private static Path file;
 
     private MorphManager() {}
@@ -42,13 +46,27 @@ public final class MorphManager {
                 }
             });
         } catch (IOException | JsonParseException e) {
-            LucarioMod.LOGGER.warn("Не удалось прочитать {}", file, e);
+            LucarioMod.LOGGER.warn("Failed to read {}", file, e);
         }
     }
 
     public static void unload(MinecraftServer server) {
+        if (dirty && file != null) { // сброс отложенных изменений перед выгрузкой мира
+            dirty = false;
+            nextSaveMs = 0L;
+            save();
+        }
         MORPHS.clear();
         file = null;
+    }
+
+    /** Вызывается каждый тик сервера: выполняет отложенное сохранение, когда подошло время. */
+    public static void tick(MinecraftServer server) {
+        if (dirty && nextSaveMs > 0L && System.currentTimeMillis() >= nextSaveMs) {
+            dirty = false;
+            nextSaveMs = 0L;
+            save();
+        }
     }
 
     private static void save() {
@@ -58,7 +76,7 @@ public final class MorphManager {
         try (Writer w = Files.newBufferedWriter(file)) {
             GSON.toJson(out, w);
         } catch (IOException e) {
-            LucarioMod.LOGGER.warn("Не удалось сохранить {}", file, e);
+            LucarioMod.LOGGER.warn("Failed to save {}", file, e);
         }
     }
 
@@ -70,7 +88,8 @@ public final class MorphManager {
     public static void set(MinecraftServer server, UUID id, String variant) {
         if (variant == null) MORPHS.remove(id);
         else MORPHS.put(id, variant);
-        save();
+        dirty = true;
+        nextSaveMs = System.currentTimeMillis() + SAVE_DEBOUNCE_MS;
         broadcast(server, id, variant);
     }
 

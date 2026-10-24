@@ -24,6 +24,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Flow;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -94,7 +95,8 @@ public final class SyncClient {
     /** Одна попытка опубликовать {@code key} на все зеркала. */
     private static void doPublish(String key) {
         SyncConfig cfg = SyncConfig.get();
-        if (!cfg.syncEnabled || cfg.serviceUrls.isEmpty()) {
+        // Публикация — тоже внешний обмен: требуется явное согласие (opt-in).
+        if (!cfg.syncActive() || cfg.serviceUrls.isEmpty()) {
             pendingPublish = null;
             return;
         }
@@ -181,7 +183,7 @@ public final class SyncClient {
             String v = cfg.rememberVariant ? cfg.lastVariant : "";
             if (!v.isEmpty() && Variants.isValid(v)) {
                 ClientMorphs.set(mc.player.getUUID(), v);
-                if (cfg.syncEnabled) publish(v);
+                publish(v); // без согласия (syncActive()) публикация просто сбросится
             }
         }
 
@@ -195,7 +197,8 @@ public final class SyncClient {
         // Ретраи авторизации записи по расписанию (запускаются 401-м от зеркала).
         AuthClient.tick();
 
-        if (!cfg.syncEnabled || cfg.serviceUrls.isEmpty()) return;
+        // Всё, что ходит во внешний сервис (опрос и «пульс»), — только с явного согласия (opt-in).
+        if (!cfg.syncActive() || cfg.serviceUrls.isEmpty()) return;
         long now = System.currentTimeMillis();
 
         // «Пульс»: раз в heartbeatMinutes минут тихо перепубликуем текущий образ,
@@ -217,7 +220,11 @@ public final class SyncClient {
         }
 
         if (now < nextCycleMs) return;
-        nextCycleMs = now + cfg.syncIntervalSeconds * 1000L;
+        // ±15% случайного разброса к интервалу опроса, чтобы множество клиентов
+        // не били в зеркала синхронно.
+        long base = cfg.syncIntervalSeconds * 1000L;
+        long jitter = (long) ((ThreadLocalRandom.current().nextDouble() - 0.5) * base * 0.3);
+        nextCycleMs = now + base + jitter;
 
         UUID self = selfUuid();
         List<UUID> ids = new ArrayList<>();

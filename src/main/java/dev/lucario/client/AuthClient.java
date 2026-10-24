@@ -15,6 +15,7 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -67,6 +68,8 @@ public final class AuthClient {
     private static final AtomicInteger ATTEMPTS = new AtomicInteger(0);
     /** Раньше этого момента (мс) следующую попытку не начинаем. */
     private static volatile long nextAttemptMs = 0L;
+    /** Offline-сервер уже распознан — предупреждение показываем один раз за сессию игры. */
+    private static boolean offlineWarned = false;
 
     private AuthClient() {}
 
@@ -78,6 +81,13 @@ public final class AuthClient {
             nextAttemptMs = 0L;
         }
         tryRun();
+    }
+
+    /** Отключение от сервера: сбрасываем незавершённый цикл авторизации. */
+    public static void reset() {
+        NEEDED.set(false);
+        ATTEMPTS.set(0);
+        nextAttemptMs = 0L;
     }
 
     /** Вызывается каждый клиентский тик (из {@link SyncClient#tick}): продвигает расписание. */
@@ -108,6 +118,17 @@ public final class AuthClient {
             if (mc.player == null || user == null || user.getAccessToken() == null
                     || user.getAccessToken().isBlank()) {
                 fail(mc, "нет лицензионной сессии Minecraft");
+                return;
+            }
+            // Offline-сервер: UUID игрока вычислен из ника и не совпадает с профилем Mojang —
+            // join всё равно отклонят, так что не долбим session-сервер бесконечно.
+            UUID sessionProfile = mc.getGameProfile() != null ? mc.getGameProfile().id() : null;
+            if (sessionProfile != null && !sessionProfile.equals(mc.player.getUUID())) {
+                NEEDED.set(false);
+                if (!offlineWarned) {
+                    offlineWarned = true;
+                    message(mc, Component.translatable("lucariomod.auth.offline_server"));
+                }
                 return;
             }
             if (n == 1) {
@@ -157,8 +178,7 @@ public final class AuthClient {
         long delay = delayAfterFailureMs(n);
         nextAttemptMs = System.currentTimeMillis() + delay;
         if (n == 1) {
-            message(mc, "Не удалось защитить запись (" + reason + "). Продолжу автоматически: "
-                    + "2 попытки через 30 секунд, 2 через минуту, дальше каждые 5 минут.");
+            message(mc, Component.translatable("lucariomod.auth.failed", reason));
         }
         if (n <= 4 || n % 12 == 0) { // первые попытки и далее раз в час — без спама
             LucarioMod.LOGGER.warn("[Lucario Sync] Авторизация записи не удалась (попытка {}, следующая через {} с): {}",
@@ -175,8 +195,7 @@ public final class AuthClient {
             SyncConfig cfg = SyncConfig.get();
             cfg.serviceTokens.putAll(got);
             cfg.save();
-            message(mc, "Запись образа защищена (зеркал: " + got.size() + "). Токен сохранён в конфиг: "
-                    + "если удалить конфиг — он вернётся сам при следующей авторизации.");
+            message(mc, Component.translatable("lucariomod.auth.protected", got.size()));
             SyncClient.onAuthSuccess();
         });
     }
@@ -279,10 +298,10 @@ public final class AuthClient {
     // ------------------------------------------------------------ утилиты
 
     /** Сообщение в чат из любого потока (без блокировок: всегда через mc.execute). */
-    private static void message(Minecraft mc, String text) {
+    private static void message(Minecraft mc, Component text) {
         mc.execute(() -> {
             if (mc.player != null) {
-                mc.player.sendSystemMessage(Component.literal("[Lucario] " + text));
+                mc.player.sendSystemMessage(Component.literal("[Lucario] ").append(text));
             }
         });
     }

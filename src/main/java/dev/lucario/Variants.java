@@ -1,6 +1,7 @@
 package dev.lucario;
 
 import com.mojang.brigadier.suggestion.SuggestionsBuilder;
+import net.minecraft.network.chat.Component;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -117,7 +118,7 @@ public final class Variants {
     }
 
     /** Короткое имя варианта (без префикса семейства): lucariocaptain -> "captain", riolupmd -> "pmd". */
-    private static String shortName(String variant, String familyPrefix) {
+    public static String shortName(String variant, String familyPrefix) {
         return variant.startsWith(familyPrefix) && variant.length() > familyPrefix.length()
                 ? variant.substring(familyPrefix.length())
                 : variant;
@@ -159,10 +160,23 @@ public final class Variants {
         }
     }
 
-    /** Название образа для сообщения игроку. */
-    public static String title(String v) {
-        if (isRiolu(v)) return "Риолу";
-        if (isMega(v)) return "Мега-Лукарио";
-        return "Лукарио";
+    /** Ключ перевода названия образа для сообщения игроку вместо русских строк ("Риолу" / "Мега-Лукарио" / "Лукарио"). */
+    public static String titleKey(String v) {
+        if (isRiolu(v)) return "lucariomod.title.riolu";
+        if (isMega(v)) return "lucariomod.title.mega";
+        return "lucariomod.title.lucario";
+    }
+
+    /** Ключ перевода имени конкретного образа: lucariomod.name.lucariopmd -> "Lucario pmd". */
+    public static String nameKey(String v) {
+        return "lucariomod.name." + baseOf(normalize(v));
+    }
+
+    /** Единое сообщение "Вы теперь <имя>!" для команды и GUI; шайни-варианты — "Вы теперь шайни <имя>!". */
+    public static Component morphedMessage(String v) {
+        Component name = Component.translatable(nameKey(v));
+        return isShiny(v)
+                ? Component.translatable("lucariomod.cmd.morphed.shiny", name)
+                : Component.translatable("lucariomod.cmd.morphed", name);
     }
 }

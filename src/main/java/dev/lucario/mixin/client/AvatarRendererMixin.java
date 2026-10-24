@@ -1,11 +1,15 @@
 package dev.lucario.mixin.client;
 
 import dev.lucario.Variants;
+import dev.lucario.client.AttackSwingState;
 import dev.lucario.client.ClientMorphs;
+import dev.lucario.client.CombatState;
+import dev.lucario.client.DanceState;
 import dev.lucario.client.LucarioModel;
 import dev.lucario.client.LucarioModels;
 import dev.lucario.client.LucarioRenderer;
 import dev.lucario.client.LucarioStateAccess;
+import dev.lucario.client.MotionBlend;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.AbstractClientPlayer;
 import net.minecraft.client.renderer.SubmitNodeCollector;
@@ -34,8 +38,11 @@ public abstract class AvatarRendererMixin {
     private void lucario$copyState(Avatar entity, AvatarRenderState state,
                                    float tickProgress, CallbackInfo ci) {
         LucarioStateAccess access = (LucarioStateAccess) (Object) state;
-        // Состояния переиспользуются между сущностями и кадрами — сбрасываем личную модель.
+        // Состояния переиспользуются между сущностями и кадрами — сбрасываем личную модель и бленды поз.
         access.lucario$setModel(null);
+        access.lucario$setBattleBlend(0.0F);
+        access.lucario$setDanceBlend(0.0F);
+        access.lucario$setGlideBlend(0.0F);
         String variant = ClientMorphs.get(entity.getUUID());
         access.lucario$setVariant(variant);
         if (variant == null) return;
@@ -53,7 +60,18 @@ public abstract class AvatarRendererMixin {
         access.lucario$setSprinting(entity.isSprinting());
 
         // Взмах рукой: удар, ломание блока, установка блока, использование предмета.
-        access.lucario$setSwing(entity.getSwingAnimation(tickProgress));
+        // 1.6.4: the plain arm swing rides EVERY vanilla swing again — left
+        // clicks AND right-click item use (doors, food, placing), like before
+        // 1.6.2. Only the STRIKE overlay (body twist, chest lean, fist, off-arm
+        // backswing) stays gated on real attacks: for the LOCAL player that means
+        // a recent Minecraft#startAttack mark (700 ms window > the 6-tick swing).
+        // Remote players keep the old full-strike behavior — their click type
+        // is not observable client-side.
+        boolean local = entity == Minecraft.getInstance().player;
+        boolean swinging = entity.isSwinging();
+        boolean attacking = swinging && (!local || AttackSwingState.recent(entity.getUUID(), 700L));
+        access.lucario$setSwing(swinging ? entity.getSwingAnimation(tickProgress) : 0.0F);
+        access.lucario$setStrike(attacking);
         HumanoidArm swingArm = entity.getMainArm();
         if (entity.getUsedItemHand() == InteractionHand.OFF_HAND) swingArm = swingArm.getOpposite();
         access.lucario$setSwingRight(swingArm == HumanoidArm.RIGHT);
@@ -71,6 +89,32 @@ public abstract class AvatarRendererMixin {
 
         // Едет верхом (лодка, вагонетка, свинья и т.п.) — для позы сидения
         access.lucario$setRiding(entity.isPassenger());
+
+        // Patch 11: battle stance lingers ~2s after the entity attacked or was hurt.
+        // NOTE (verify on build): `isSwinging()` / `hurtTime` are the official
+        // mapping names on 26.3; on 26.2 `getAttackAnim` is used for the swing progress.
+        // 1.6.2: right-click swings no longer count as combat for the local player.
+        if (attacking || entity.hurtTime > 0) {
+            CombatState.mark(entity.getUUID());
+        }
+
+        boolean combat = CombatState.recent(entity.getUUID(), 2000L)
+                && !entity.isFallFlying()
+                && !entity.isInWater()
+                && !entity.isPassenger()
+                && !entity.isDeadOrDying();
+        // 1.6.0: local dance emote of the client player (loops until toggled/moved)
+        boolean dancing = DanceState.active()
+                && entity == Minecraft.getInstance().player
+                && entity.hurtTime <= 0
+                && !entity.isFallFlying()
+                && !entity.isInWater()
+                && !entity.isPassenger()
+                && !entity.isDeadOrDying();
+        // 1.6.0: all pose switches ease through MotionBlend weights instead of snapping
+        access.lucario$setBattleBlend(MotionBlend.battle(entity.getUUID(), combat));
+        access.lucario$setDanceBlend(MotionBlend.dance(entity.getUUID(), dancing));
+        access.lucario$setGlideBlend(MotionBlend.glide(entity.getUUID(), entity.isFallFlying() && !entity.isDeadOrDying()));
 
         // Ванильные слои рассчитаны на скелет Стива — для образа отключаем:
         // убираем броню/плащ/стрелы/шляпу из состояния (рендерятся они уже после extractRenderState),

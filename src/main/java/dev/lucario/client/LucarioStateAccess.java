@@ -15,6 +15,11 @@ public interface LucarioStateAccess {
 
     void lucario$setSwing(float progress);
 
+    /** true — текущий взмах является реальной атакой (ЛКМ); включает оверлей удара (скрутка корпуса, наклон груди, кулак, замах второй руки). */
+    boolean lucario$isStrike();
+
+    void lucario$setStrike(boolean strike);
+
     /** true — машет правой рукой (с учётом ведущей руки и того, какой рукой бьют). */
     boolean lucario$isSwingRight();
 
@@ -48,4 +53,19 @@ public interface LucarioStateAccess {
     LucarioModel lucario$getModel();
 
     void lucario$setModel(LucarioModel model);
+
+    /** Сглаженный вес боевой стойки 0..1 (игрока недавно ударили или он сам атаковал). */
+    float lucario$getBattleBlend();
+
+    void lucario$setBattleBlend(float blend);
+
+    /** Сглаженный вес танца 0..1 (локальный эмоут). */
+    float lucario$getDanceBlend();
+
+    void lucario$setDanceBlend(float blend);
+
+    /** Сглаженный вес позы полёта на элитрах 0..1 (для перехода между позами). */
+    float lucario$getGlideBlend();
+
+    void lucario$setGlideBlend(float blend);
 }
