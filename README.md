@@ -1,19 +1,7 @@
 # Lucario Morph — a Fabric mod for Minecraft 26.3
 
-> This is a port to the new versioning system (26.x). The original version for Minecraft 1.21.7 lives in a sibling branch.
-> In 26.x the game is not obfuscated: mappings (yarn/mojmap) are not needed, the renderer was moved to the submit pipeline, and Java 25 is required.
-
 Turns your player into Lucario (13 costumes, including Mega Lucario) or Riolu (3 looks) from the *Lucario Overhaul* pack by [JoeSeff](https://modrinth.com/datapack/lucario-overhaul).
 The Lucario look and animations are visible to every player on the server who has the mod.
-
-<!-- RECOMMENDED: add screenshots/gif — create a screenshots/ folder in the repository and uncomment the lines below:
-## Screenshots
-![Lucario](screenshots/lucario.png)
-![Riolu](screenshots/riolu.png)
-![Elytra flight](screenshots/elytra.gif)
--->
-
-Also available in: [Русском](README.ru.md).
 
 ## Installation
 Requires Minecraft 26.3, Fabric Loader ≥ 0.19.5 and [Fabric API](https://modrinth.com/mod/fabric-api) 0.165.0+26.3.
@@ -31,7 +19,7 @@ Ready-made jars are in [Releases](../../releases).
 
 ## Playing on servers without the mod (service-based sync)
 Since 1.3.0 the mod does not require installation on the server: player morphs are synced through
-an external HTTP service (a Figura-style scheme). It works like this:
+an external HTTP service. It works like this:
 * your client publishes "my UUID → my morph" to a service mirror on morph change and on world join,
   and then every 15 minutes (the `heartbeatMinutes` setting) silently refreshes the record — the "pulse";
 * every few seconds the client asks the mirror for the morphs of everyone currently on the server;
@@ -181,27 +169,6 @@ and repeat `./gradlew build`.
 * **Record protection** (automatic): account ownership is proven through the Mojang session servers
   (challenge → join → verify), mirrors store the token and require it on write.
   The token is recoverable: after deleting the config, re-authorization returns the same one.
-
-## What's new in 1.5.1
-Everything below landed after the 1.4.4 release:
-* **Commands reworked:** `/lucario` without arguments now always returns to the base form (a real toggle),
-  `/lucario off` returns the normal skin; consistent for `/riolu` too, in both server and client modes.
-* **Pick a form with GUI:** key L (or Mod Menu → Settings → "choose a form") opens a picker grid with
-  all costumes, a base form and shiny toggle — no need to remember short names. Toggles persist while playing.
-* **Keybinds in their own category:** L and J are grouped under "Lucario Morph" in Controls (not Misc).
-* **Config screen in Mod Menu:** sync toggles, authorization/consent, keybind summary and a shortcut to
-  the vanilla key binds screen.
-* **Attack animation on left click only:** the dramatic strike pose ignores right-click swings;
-  using items (doors, food, placing blocks) shows a plain arm swing like vanilla.
-* **Dance emote:** loops, forces third-person camera until it ends, cancels on damage.
-* **Smooth animation blending:** elytra glide eases in/out (no more A-pose snap), battle stance and dance
-  crossfade over walk cycles, walking works during attacks and stance.
-* **Human-readable chat messages:** "You are now Lucario pmd!" (and shiny variants) instead of technical ids.
-* **Sync hardening:** the service is opt-in (nothing is sent without consent), disconnects reset all
-  client state, mirror requests jitter ±15%, the model cache is an LRU with a clear-on-reload hook.
-* **Mod metadata:** conflicts with CustomPlayerModels / SkinShifter / ReMorphed, Mod Menu suggested,
-  English + Russian translations, **JoeSeff (author of the original models, textures and animations)
-  is now credited as a co-author**.
 
 ## Known limitations
 * The hitbox stays the player's (0.6×1.8); the model is scaled to 1.8 blocks.
