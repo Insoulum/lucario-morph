@@ -108,10 +108,6 @@ public final class Variants {
         return v != null && MEGA.equals(baseOf(normalize(v)));
     }
 
-    public static boolean isLucario(String v) {
-        return v != null && LUCARIO.contains(baseOf(normalize(v)));
-    }
-
     /** Не рисовать элитры в этом образе (у костюма свои крылья — они конфликтуют с элитрами). */
     public static boolean hidesElytra(String v) {
         return v != null && NO_ELYTRA.contains(baseOf(normalize(v)));
@@ -158,13 +154,6 @@ public final class Variants {
         for (String c : candidates) {
             if (c.toLowerCase(Locale.ROOT).startsWith(remaining)) builder.suggest(c);
         }
-    }
-
-    /** Ключ перевода названия образа для сообщения игроку вместо русских строк ("Риолу" / "Мега-Лукарио" / "Лукарио"). */
-    public static String titleKey(String v) {
-        if (isRiolu(v)) return "lucariomod.title.riolu";
-        if (isMega(v)) return "lucariomod.title.mega";
-        return "lucariomod.title.lucario";
     }
 
     /** Ключ перевода имени конкретного образа: lucariomod.name.lucariopmd -> "Lucario pmd". */

@@ -23,9 +23,6 @@ public final class MorphCommands {
       /** UUID of the commanding player, or null if unavailable (client, not in world). */
       UUID player(S source) throws CommandSyntaxException;
 
-      /** Currently stored morph for the player (may be null). */
-      String current(UUID id);
-
       /** Persist + propagate the morph (variant == null means "no morph"). */
       void apply(S source, UUID id, String variant);
 

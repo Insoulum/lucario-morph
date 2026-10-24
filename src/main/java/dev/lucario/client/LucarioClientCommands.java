@@ -33,11 +33,6 @@ public final class LucarioClientCommands {
         }
 
         @Override
-        public String current(UUID id) {
-            return ClientMorphs.get(id);
-        }
-
-        @Override
         public void apply(FabricClientCommandSource source, UUID id, String variant) {
             MorphApplier.apply(variant);
         }

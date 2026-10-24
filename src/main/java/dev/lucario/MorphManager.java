@@ -15,6 +15,7 @@ import java.io.Reader;
 import java.io.Writer;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -73,8 +74,18 @@ public final class MorphManager {
         if (file == null) return;
         Map<String, String> out = new HashMap<>();
         MORPHS.forEach((k, v) -> out.put(k.toString(), v));
-        try (Writer w = Files.newBufferedWriter(file)) {
-            GSON.toJson(out, w);
+        try {
+            // Атомарная запись (как в SyncConfig.save()): сперва во временный файл рядом,
+            // затем переименование — краш посреди записи не оставит битый JSON в мире.
+            Path tmp = file.resolveSibling(file.getFileName() + ".tmp");
+            try (Writer w = Files.newBufferedWriter(tmp)) {
+                GSON.toJson(out, w);
+            }
+            try {
+                Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            } catch (IOException atomicUnsupported) {
+                Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING);
+            }
         } catch (IOException e) {
             LucarioMod.LOGGER.warn("Failed to save {}", file, e);
         }

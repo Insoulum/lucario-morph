@@ -28,11 +28,6 @@ public class LucarioMod implements ModInitializer {
         }
 
         @Override
-        public String current(UUID id) {
-            return MorphManager.get(id);
-        }
-
-        @Override
         public void apply(CommandSourceStack source, UUID id, String variant) {
             MorphManager.set(source.getServer(), id, variant);
         }
