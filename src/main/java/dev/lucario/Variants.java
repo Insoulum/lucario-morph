@@ -108,6 +108,11 @@ public final class Variants {
         return v != null && MEGA.equals(baseOf(normalize(v)));
     }
 
+    /** Образ принадлежит семейству Лукарио (включая Mega и все костюмы). */
+    public static boolean isLucario(String v) {
+        return v != null && LUCARIO.contains(baseOf(normalize(v)));
+    }
+
     /** Не рисовать элитры в этом образе (у костюма свои крылья — они конфликтуют с элитрами). */
     public static boolean hidesElytra(String v) {
         return v != null && NO_ELYTRA.contains(baseOf(normalize(v)));
@@ -159,6 +164,16 @@ public final class Variants {
     /** Ключ перевода имени конкретного образа: lucariomod.name.lucariopmd -> "Lucario pmd". */
     public static String nameKey(String v) {
         return "lucariomod.name." + baseOf(normalize(v));
+    }
+
+    /**
+     * Ключ перевода «титульного» имени семейства (1.6.1): обычный Лукарио/Риолу или Мега.
+     * Используется там, где нужен родовой заголовок образа, а не конкретный костюм
+     * (ключи lucariomod.title.lucario / .mega / .riolu).
+     */
+    public static String titleKey(String v) {
+        if (isRiolu(v)) return "lucariomod.title.riolu";
+        return isMega(v) ? "lucariomod.title.mega" : "lucariomod.title.lucario";
     }
 
     /** Единое сообщение "Вы теперь <имя>!" для команды и GUI; шайни-варианты — "Вы теперь шайни <имя>!". */

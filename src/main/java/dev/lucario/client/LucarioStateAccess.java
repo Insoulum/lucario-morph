@@ -68,4 +68,18 @@ public interface LucarioStateAccess {
     float lucario$getGlideBlend();
 
     void lucario$setGlideBlend(float blend);
+
+    /**
+     * 1.7.0: эмоут ИМЕННО ЭТОГО игрока: короткое имя анимации или {@code PreviewState.TPOSE};
+     * null — эмоута нет. Свои — из DanceState/PreviewState, чужие — из RemoteEmotes.
+     * Раньше рендерер читал глобальные состояния — теперь позы разных игроков независимы.
+     */
+    String lucario$getEmoteAnim();
+
+    void lucario$setEmoteAnim(String anim);
+
+    /** 1.7.0: часы эмоута этого игрока в секундах (старт — в момент включения, фриз — при стопе). */
+    double lucario$getEmoteTime();
+
+    void lucario$setEmoteTime(double seconds);
 }

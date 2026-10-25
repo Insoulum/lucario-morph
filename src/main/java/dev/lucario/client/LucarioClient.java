@@ -75,6 +75,7 @@ public class LucarioClient implements ClientModInitializer {
 
         ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> {
             SyncClient.onJoin();
+            EmoteSync.onJoin();
             maybeShowConsent(client);
         });
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
@@ -82,12 +83,18 @@ public class LucarioClient implements ClientModInitializer {
             CombatState.clear();
             MotionBlend.clear();
             AttackSwingState.clear();
+            RemoteEmotes.clear();
             AuthClient.reset();
+            // 1.7.0: WS-канал эмоутов закрываем, отложенные публикации сбрасываем.
+            // Сам стоп НЕ шлём: эмоут визуально продолжается после смены мира (так
+            // устроен мод), а если игрок не вернётся — запись погасит TTL сервиса.
+            EmoteSync.onDisconnect();
         });
         ClientTickEvents.END_CLIENT_TICK.register(mc -> {
             KeyBindings.tick(mc);
             DanceState.tick(mc);
             SyncClient.tick(mc);
+            EmoteSync.tick(mc);
         });
     }
 

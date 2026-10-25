@@ -10,6 +10,8 @@ import dev.lucario.client.LucarioModels;
 import dev.lucario.client.LucarioRenderer;
 import dev.lucario.client.LucarioStateAccess;
 import dev.lucario.client.MotionBlend;
+import dev.lucario.client.PreviewState;
+import dev.lucario.client.RemoteEmotes;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.AbstractClientPlayer;
 import net.minecraft.client.renderer.SubmitNodeCollector;
@@ -42,6 +44,8 @@ public abstract class AvatarRendererMixin {
         access.lucario$setBattleBlend(0.0F);
         access.lucario$setDanceBlend(0.0F);
         access.lucario$setGlideBlend(0.0F);
+        access.lucario$setEmoteAnim(null);
+        access.lucario$setEmoteTime(0.0);
         String variant = ClientMorphs.get(entity.getUUID());
         access.lucario$setVariant(variant);
         if (variant == null) return;
@@ -102,9 +106,25 @@ public abstract class AvatarRendererMixin {
                 && !entity.isInWater()
                 && !entity.isPassenger()
                 && !entity.isDeadOrDying();
-        // 1.6.0: local dance emote of the client player (loops until toggled/moved)
-        boolean dancing = DanceState.active()
-                && entity == Minecraft.getInstance().player
+        // 1.7.0: эмоут — пер-игроковый. Свой — из DanceState/PreviewState (как раньше);
+        // чужие — из RemoteEmotes (события приходят через сервис синхронизации, часы
+        // стартуют в момент получения события). Ванильные проверки (урон/вода/полёт/
+        // ездок/смерть) синхронизируются самим Minecraft — работают и для чужих игроков.
+        String emoteAnim = null;
+        double emoteTime = 0.0;
+        if (local) {
+            if (DanceState.active()) {
+                emoteAnim = PreviewState.anim();
+                emoteTime = DanceState.danceSeconds();
+            }
+        } else {
+            RemoteEmotes.Emote remote = RemoteEmotes.get(entity.getUUID());
+            if (remote != null && remote.active) {
+                emoteAnim = remote.anim;
+                emoteTime = remote.seconds(System.currentTimeMillis());
+            }
+        }
+        boolean dancing = emoteAnim != null
                 && entity.hurtTime <= 0
                 && !entity.isFallFlying()
                 && !entity.isInWater()
@@ -114,6 +134,10 @@ public abstract class AvatarRendererMixin {
         access.lucario$setBattleBlend(MotionBlend.battle(entity.getUUID(), combat));
         access.lucario$setDanceBlend(MotionBlend.dance(entity.getUUID(), dancing));
         access.lucario$setGlideBlend(MotionBlend.glide(entity.getUUID(), entity.isFallFlying() && !entity.isDeadOrDying()));
+        // 1.7.0: имя и часы эмоута едут в состояние рендера — LucarioRenderer читает
+        // пер-игроковые значения вместо глобальных PreviewState/DanceState.
+        access.lucario$setEmoteAnim(dancing ? emoteAnim : null);
+        access.lucario$setEmoteTime(emoteTime);
 
         // Ванильные слои рассчитаны на скелет Стива — для образа отключаем:
         // убираем броню/плащ/стрелы/шляпу из состояния (рендерятся они уже после extractRenderState),

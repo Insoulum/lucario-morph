@@ -19,6 +19,10 @@ import net.minecraft.resources.Identifier;
  * Key Binds screen (appended after the vanilla categories via
  * {@code KeyMapping.Category.register}, label key
  * {@code key.category.lucariomorph.lucario_morph}) instead of Misc.
+ * <p>
+ * 1.6.1: DANCE (J) no longer toggles the dance directly — it opens the
+ * {@link AnimationPreviewScreen} emote menu instead (the key's display name
+ * is "Animation menu (emotes)" since this build).
  */
 @Environment(EnvType.CLIENT)
 public final class KeyBindings {
@@ -54,7 +58,11 @@ public final class KeyBindings {
       }
 
       while (DANCE.consumeClick()) {
-         DanceState.toggle();
+         // 1.6.1: J opens the emote menu (any animation of the current model) instead of
+         // hard-coding the dance — the screen starts/stops the emote via DanceState.
+         if (mc.gui.screen() == null && mc.player != null) {
+            mc.setScreenAndShow(new AnimationPreviewScreen());
+         }
       }
    }
 }

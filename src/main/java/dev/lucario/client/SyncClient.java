@@ -298,6 +298,16 @@ public final class SyncClient {
         return out;
     }
 
+    /** 1.7.0: зеркало, которое последним успешно ответило — EmoteSync подключает к нему WS-канал. */
+    static String preferredMirror() {
+        return preferredMirror;
+    }
+
+    /** 1.7.0: GET-запрос к первому ответившему зеркалу (кэш эмоутов — запасной канал чтения). */
+    static CompletableFuture<JsonObject> fetch(String pathAndQuery) {
+        return fetchJson(orderedMirrors(SyncConfig.get()), 0, pathAndQuery);
+    }
+
     /** Применяет ответы сервиса к кэшу рендера. Вызывается на главном потоке клиента. */
     private static void applyBatch(List<UUID> batch, JsonObject obj, UUID self) {
         for (UUID id : batch) {

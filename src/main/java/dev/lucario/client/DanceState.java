@@ -10,7 +10,10 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.world.phys.Vec2;
 
 /**
- * Patch 11: local dance emote driven by {@link KeyBindings#DANCE}.
+ * Local emote clock. 1.6.1: the emote is picked in {@link AnimationPreviewScreen}
+ * (opened by {@link KeyBindings#DANCE}); {@code toggle()} remains for compatibility but is
+ * no longer wired to the key. <p>
+ * Patch 11: originally the dance emote was driven by {@link KeyBindings#DANCE} directly.
  * <p>
  * 1.6.0: the emote now LOOPS. The dance animation itself is marked
  * {@code loop:true} in the asset and the sampler wraps time, so the state simply
@@ -26,10 +29,10 @@ import net.minecraft.world.phys.Vec2;
  * if it was in first person, and switching back on stop; taking damage also
  * cancels the emote (checked in {@link #tick} and in the render-state mixin).
  * <p>
- * NOTE: emote state is intentionally NOT synced — the sync service and the
- * MorphPayload only carry the variant string, and keeping the protocol
- * unchanged preserves compatibility with old clients. Remote players will see
- * the dance only in client-local cases (e.g. the morphed player themselves).
+ * 1.7.0: эмоут СИНХРОНИЗИРУЕТСЯ ({@link EmoteSync}): старт и стоп публикуются на
+ * сервис синхронизации (PUT во все зеркала, мгновенно), а чужие эмоуты приходят
+ * обратно по WebSocket-каналу. Локальное поведение не изменилось: если синхронизация
+ * выключена или зеркал нет — эмоут работает как раньше, только у себя.
  */
 @Environment(EnvType.CLIENT)
 public final class DanceState {
@@ -71,9 +74,12 @@ public final class DanceState {
          mc.options.setCameraType(CameraType.THIRD_PERSON_BACK);
          switchedCamera = true;
       }
+      // 1.7.0: публикуем старт эмоута (внутри — проверка согласия на синхронизацию)
+      EmoteSync.publishStart(PreviewState.anim());
    }
 
    public static void stop() {
+      boolean wasActive = active();
       long until = untilMs;
       if (until != 0L && startMs != 0L) {
          frozenSeconds = (System.currentTimeMillis() - startMs) / 1000.0F;
@@ -90,6 +96,12 @@ public final class DanceState {
          }
 
          cameraBefore = null;
+      }
+
+      // 1.7.0: стоп тоже публикуем — и мгновенно. Даже если стоп-событие потеряется,
+      // TTL сервиса погасит эмоут максимум за ~30 с (и пришлёт его как обычный стоп).
+      if (wasActive) {
+         EmoteSync.publishStop();
       }
    }
 

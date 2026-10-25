@@ -23,6 +23,10 @@ public final class MorphCommands {
       /** UUID of the commanding player, or null if unavailable (client, not in world). */
       UUID player(S source) throws CommandSyntaxException;
 
+      /** 1.6.1: the CURRENT morph of the player (null = no morph), so a bridge consumer can
+       *  look up the variant without knowing which side (server/client) stores it. */
+      String current(UUID id);
+
       /** Persist + propagate the morph (variant == null means "no morph"). */
       void apply(S source, UUID id, String variant);
 

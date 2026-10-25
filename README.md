@@ -6,7 +6,7 @@ The Lucario look and animations are visible to every player on the server who ha
 ## Installation
 Requires Minecraft 26.3, Fabric Loader ≥ 0.19.5 and [Fabric API](https://modrinth.com/mod/fabric-api) 0.165.0+26.3.
 1. Install Fabric Loader via the official installer: https://fabricmc.net/use
-2. Put `lucariomorph-fabric-26.3-1.5.1.jar` and Fabric API into the `mods` folder.
+2. Put `lucariomorph-fabric-26.3-1.6.1.jar` and Fabric API into the `mods` folder.
 3. Then pick one of two options:
    * **Modded server** (classic mode): put the jar on the server as well. The `/lucario` and `/riolu`
      commands are registered by the server, the choice is saved in the world folder, and the morph is visible
@@ -87,6 +87,26 @@ What this gives you:
 
 Deployment details: [the lucariomorph-server repository README](https://github.com/Insoulum/lucariomorph-server).
 
+### Emote animations between players (since 1.7.0)
+
+Since 1.7.0 emotes are visible to OTHER players: everything you play from the emote menu (`J` —
+dances, any emote of the current model, the T-pose) is played on the morphs of everyone who sees you.
+How it works:
+
+* a start/stop is published the moment it happens — the "ping" between your key press and the
+  animation on other screens is one network round trip (the real-time channel is a WebSocket on the
+  same port; measured: p50 ≈ 11 ms of server time + your RTT);
+* only players NEARBY see the emote — the same set Minecraft already renders for you;
+* delivery is guaranteed in layers: the push → a backup HTTP poll every 2 s while the socket is
+  down → a snapshot whenever the set of nearby players changes → if a game crashes mid-emote, the
+  animation is extinguished everywhere by the service after ~30 s;
+* the animation starts from its first keyframe on every screen (each viewer keeps its own clock —
+  no clock sync needed); stopping holds the last frame during the crossfade, like locally;
+* no separate switch: emote sync rides the same opt-in as morph sync (`syncEnabled` + the consent
+  screen). Without sync the emote works locally as before.
+
+Mirrors older than 1.5.0 simply don't carry emotes — the mod silently uses the mirrors that do.
+
 ## Commands
 | Command | What it does |
 |---|---|
@@ -139,8 +159,17 @@ and repeat `./gradlew build`.
   right-click item use (doors, food, placing) keeps only a plain vanilla-like arm swing.
 * **Battle stance:** after attacking or taking damage Lucario holds a combat stance for ~2 seconds;
   it crossfades in/out and works while walking (the legs blend stance ↔ walk).
-* **Dance emote (J):** loops until toggled off or interrupted (moving, mounting, water, elytra, damage);
-  the camera switches to third person for the duration and returns afterwards.
+* **Emote menu (J):** J opens the animation preview screen — every manually playable animation of the
+  current morph (dance, specialist, battle idle alt, faint, sense aura, T-pose for rigging checks…),
+  with localized button labels and a `▶` marker on the one that is playing. An emote loops until
+  interrupted (moving, mounting, water, elytra, damage); the camera switches to third person for the
+  duration and returns afterwards.
+* **Emote sync (1.7.0):** other players see your emotes — start/stop are pushed instantly through the
+  sync service over WebSocket (a 2-second HTTP poll covers the case when the socket is down), only
+  nearby players receive them, and a crashed client's emote is extinguished everywhere after ~30 s.
+  See "Emote animations between players" above.
+* **Death animation:** on death the model plays its "faint" animation
+  (Mega Lucario's pack ships it as "battle_faintwip" — both names are tried).
 * **Sneaking (Shift):** the torso leans forward, the legs bend, the body lowers, the feet stay on the ground.
   The angles are computed from the leg lengths of the model itself (`LucarioModel.computeCrouch`),
   so it fits both Lucario and Riolu.
@@ -158,9 +187,10 @@ and repeat `./gradlew build`.
 * The head follows the camera; the player name, the shadow and the hurt flash work as usual.
 * **Smooth pose transitions:** every pose switch (glide, stance, dance, walk↔flight) eases through
   exponential blend weights instead of snapping — the elytra tilt ramps up on takeoff and settles on landing.
-* **GUI:** keybinds (L — pick a form, J — dance) live in their own "Lucario Morph" category in Controls;
+* **GUI:** keybinds (L — pick a form, J — animation menu) live in their own "Lucario Morph" category in Controls;
   a config screen is registered in Mod Menu (sync settings, consent, keybind summary, "choose a form"
-  picker with Type/Shiny toggles that remember their state).
+  picker with Type/Shiny toggles that remember their state). Since 1.6.1 the picker buttons show the
+  localized display names ("Lucario (PMD)" instead of the raw "pmd").
 * Network sync (server → all clients), saved to the world.
 * **Servers without the mod:** the morph is remembered in the client config and synced through an
   external HTTP service with mirror support (`config/lucariomorph.json`, the

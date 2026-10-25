@@ -35,6 +35,10 @@ public class AvatarRenderStateMixin implements LucarioStateAccess {
     private float lucario$danceBlend;
     @Unique
     private float lucario$glideBlend;
+    @Unique
+    private String lucario$emoteAnim;
+    @Unique
+    private double lucario$emoteTime;
 
     @Override
     public String lucario$getVariant() {
@@ -164,5 +168,25 @@ public class AvatarRenderStateMixin implements LucarioStateAccess {
     @Override
     public void lucario$setGlideBlend(float blend) {
         this.lucario$glideBlend = blend;
+    }
+
+    @Override
+    public String lucario$getEmoteAnim() {
+        return lucario$emoteAnim;
+    }
+
+    @Override
+    public void lucario$setEmoteAnim(String anim) {
+        this.lucario$emoteAnim = anim;
+    }
+
+    @Override
+    public double lucario$getEmoteTime() {
+        return lucario$emoteTime;
+    }
+
+    @Override
+    public void lucario$setEmoteTime(double seconds) {
+        this.lucario$emoteTime = seconds;
     }
 }

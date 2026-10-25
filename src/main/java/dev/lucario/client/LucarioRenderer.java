@@ -172,8 +172,9 @@ public final class LucarioRenderer {
         boolean sprinting = access.lucario$isSprinting();
         boolean water = s.isInWater;
         // Patch 11: death plays the "faint" animation (loop=false holds the last frame).
-        // NOTE (verify on build): LivingEntityRenderState.deathTime is the official field name on 26.3.
-        boolean dying = s.deathTime > 0.0F && m.animation("faint") != null;
+        // 1.6.1: Mega Lucario's pack ships it under the WIP name "battle_faintwip" — try both.
+        BedrockAnimation faintAnim = first(m, "faint", "battle_faintwip");
+        boolean dying = s.deathTime > 0.0F && faintAnim != null;
         boolean sleeping = !dying && s.hasPose(Pose.SLEEPING) && m.animation("sleep") != null;
         boolean gliding = !sleeping && !dying && access.lucario$isGliding();
         // плавание, ползание и полёт: обе руки вытянуты вперёд (по ходу движения)
@@ -185,7 +186,7 @@ public final class LucarioRenderer {
         BedrockAnimation idle;
         BedrockAnimation move;
         if (dying) {
-            idle = m.animation("faint");
+            idle = faintAnim;
             move = null;
         } else if (sleeping) {
             idle = m.animation("sleep");
@@ -218,20 +219,27 @@ public final class LucarioRenderer {
         // 1.6.0: smoothed animation weights (see MotionBlend) — poses crossfade instead of snapping.
         float glideW = Mth.clamp(access.lucario$getGlideBlend(), 0.0F, 1.0F);
         float danceW = Mth.clamp(access.lucario$getDanceBlend(), 0.0F, 1.0F);
-        BedrockAnimation dance = m.animation("dance");
-        if (dying || sleeping || water || riding || dance == null) {
+        // 1.7.0: эмоут — пер-игроковый: имя и часы приходят в состоянии рендера (свой —
+        // из DanceState/PreviewState, чужие — из RemoteEmotes через сервис синхронизации).
+        // T-поза (сырой риг) тоже едет в этом поле. null — эмоута нет.
+        String emoteName = access.lucario$getEmoteAnim();
+        boolean tpose = emoteName != null && PreviewState.TPOSE.equals(emoteName);
+        BedrockAnimation dance = tpose || emoteName == null ? null : m.animation(emoteName);
+        if (dying || sleeping || water || riding || (dance == null && !tpose)) {
             danceW = 0.0F;
         }
 
         // 1.6.1: the emote runs on its own clock (starts at the toggle, freezes on stop)
         // instead of the entity's global age, so it always begins from its first keyframe.
-        double danceTime = DanceState.danceSeconds();
+        // 1.7.0: часы — тоже пер-игроковые (у чужих стартуют в момент получения события).
+        double danceTime = access.lucario$getEmoteTime();
 
         // Patch 11: battle stance lingers ~2s after attacking or being hurt.
         // 1.6.0: it now crossfades in/out and ALSO plays while walking — the legs
         // blend between the stance and the walk cycle, so you can move with it on.
         float battleW = Mth.clamp(access.lucario$getBattleBlend(), 0.0F, 1.0F);
-        BedrockAnimation battle = m.animation("battle_idle");
+        // 1.6.1: Mega Lucario ships its stance under the WIP name "battle_idlewip" — try it first.
+        BedrockAnimation battle = first(m, "battle_idlewip", "battle_idle");
         if (dying || sleeping || water || riding || armsForward || danceW > 0.0F || battle == null) {
             battleW = 0.0F;
         }
@@ -324,9 +332,14 @@ public final class LucarioRenderer {
             float py = Mth.lerp(bw, P_IDLE[1], P_MOVE[1]);
             float pz = Mth.lerp(bw, P_IDLE[2], P_MOVE[2]);
 
-            // 1.6.0: dance emote crossfades over everything and loops until toggled off
+            // 1.6.0: dance emote crossfades over everything and loops until toggled off.
+            // 1.6.1: any preview animation (or the T-pose: bones reset to the bind pose).
             if (danceW > 0f) {
-                dance.sample(name, danceTime, R_AUX, P_AUX);
+                if (tpose) {
+                    clear(R_AUX, P_AUX);
+                } else {
+                    dance.sample(name, danceTime, R_AUX, P_AUX);
+                }
                 rx = Mth.lerp(danceW, rx, R_AUX[0]);
                 ry = Mth.lerp(danceW, ry, R_AUX[1]);
                 rz = Mth.lerp(danceW, rz, R_AUX[2]);

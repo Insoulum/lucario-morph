@@ -114,7 +114,10 @@ public class VariantPickerScreen extends Screen {
          LinearLayout row = this.layout.addChild(LinearLayout.horizontal().spacing(4));
          for (int j = i; j < Math.min(shorts.size(), i + cols); j++) {
             final String name = shorts.get(j);
-            row.addChild(Button.builder(Component.literal(name), b -> this.pick(name, base)).size(btnW, 20).build());
+            // 1.6.1: buttons show the localized display name (lucariomod.name.*) instead of
+            // the raw short name; the full variant key is shortName -> base + shortName
+            String full = name.equals(base) ? base : base + name;
+            row.addChild(Button.builder(Component.translatable(Variants.nameKey(full)), b -> this.pick(name, base)).size(btnW, 20).build());
          }
       }
 
