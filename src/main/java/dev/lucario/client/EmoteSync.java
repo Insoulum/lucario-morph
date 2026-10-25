@@ -38,7 +38,9 @@ import java.util.concurrent.atomic.AtomicInteger;
  *       «только рядом» ({@code mc.level.players()} = отслеживаемые игроки; это и есть
  *       зона видимости). Сокет подписан списком UUID ({@code watch}); при смене списка
  *       (кто-то вошёл/вышел из зоны) список отправляется заново, а сервер сразу
- *       отвечает снимком текущих эмоутов — никто не пропадает мимо кадра.</li>
+ *       отвечает снимком текущих эмоутов — никто не пропадает мимо кадра. С 1.7.2 тот
+ *       же сокет доставляет и морфы: событие «morph» и морфную половину снимка
+ *       («morphs») — смена образа видна мгновенно, HTTP-опрос остаётся страховкой.</li>
  * </ol>
  * <p>
  * Гарантии показа/прекращения: пуш → запасной HTTP-опрос раз в 2 с, пока WS закрыт →
@@ -91,6 +93,10 @@ public final class EmoteSync {
     // ============================================================ WebSocket-приём
     private static volatile WebSocket ws = null;
     private static volatile boolean wsOpen = false;
+    /** 1.7.1: рукопожатие в полёте — tick() не должен запускать параллельные коннекты
+     *  (раньше каждый тик в окне до 5 с рождал ещё один сокет: живые «сироты» копились
+     *  на сервисе и надували /health поле live — знаменитые live: 20 при двух игроках). */
+    private static volatile boolean wsConnecting = false;
     private static long wsAttempt = 0;
     private static volatile long nextWsTryMs = 0L;
     private static volatile long lastWsFailLogMs = 0L;
@@ -255,24 +261,43 @@ public final class EmoteSync {
             nextWsTryMs = System.currentTimeMillis() + WS_BACKOFF_MAX_MS;
             return;
         }
+        // 1.7.1: отметка «соединяемся» ставится ДО запуска рукопожатия, а nextWsTryMs
+        // заранее отодвигается на горизонт таймаута + запас: если колбэк вовсе не придёт,
+        // повтор через 10 с, а не 20 попыток в секунду.
+        wsConnecting = true;
+        nextWsTryMs = System.currentTimeMillis() + 10_000L;
         try {
             SyncClient.HTTP.newWebSocketBuilder()
                     .connectTimeout(Duration.ofSeconds(5))
                     .buildAsync(URI.create(url), newListener())
                     .whenComplete((socket, err) -> {
+                        wsConnecting = false;
                         if (err != null) {
                             onWsFailure(err);
                             return;
                         }
+                        // 1.7.1: прежний активный сокет (если был) закрываем — иначе он
+                        // остаётся жить «сиротой», пока его не прибьёт таймаут сервера.
+                        WebSocket old = ws;
                         ws = socket;
                         wsOpen = true;
                         wsAttempt = 0;
+                        if (old != null && old != socket) closeQuietly(old);
                         // приветствие + текущий список интересов; дальше сервер пушит сам
                         sendText(socket, GSON.toJson(Map.of("type", "hello", "uuid", self.toString())));
                         sendWatch(lastWatch);
                     });
         } catch (Exception e) {
+            wsConnecting = false;
             onWsFailure(e);
+        }
+    }
+
+    /** 1.7.1: тихо закрыть заменённый/осиротевший сокет (ошибки игнорируем — уже мёртв). */
+    private static void closeQuietly(WebSocket socket) {
+        try {
+            socket.sendClose(WebSocket.NORMAL_CLOSURE, "replaced");
+        } catch (Exception ignored) {
         }
     }
 
@@ -303,13 +328,23 @@ public final class EmoteSync {
 
             @Override
             public CompletionStage<?> onClose(WebSocket socket, int statusCode, String reason) {
-                onWsFailure(new IllegalStateException("ws closed: " + statusCode));
+                // 1.7.1: сигнал «канал упал, переподключайся» даёт ТОЛЬКО активный сокет.
+                // Смерть осиротевшего соединения — обычное дело и не должна будить канал.
+                if (socket == ws) {
+                    onWsFailure(new IllegalStateException("ws closed: " + statusCode));
+                } else {
+                    socket.abort();
+                }
                 return null;
             }
 
             @Override
             public void onError(WebSocket socket, Throwable error) {
-                onWsFailure(error);
+                if (socket == ws) {
+                    onWsFailure(error);
+                } else {
+                    socket.abort();
+                }
             }
         };
     }
@@ -368,7 +403,8 @@ public final class EmoteSync {
         sendText(socket, GSON.toJson(obj));
     }
 
-    /** Сообщения сервера: пуш события «anim» и снимок «state» (после watch). */
+    /** Сообщения сервера: пуш события «anim», пуш события «morph» (1.7.2) и снимок «state»
+     *  после watch — теперь он несёт и эмоуты (поле anims), и морфы (поле morphs, 1.7.2). */
     private static void onWsMessage(String msg) {
         try {
             JsonObject obj = GSON.fromJson(msg, JsonObject.class);
@@ -384,12 +420,43 @@ public final class EmoteSync {
                 if (id != null) {
                     Minecraft.getInstance().execute(() -> RemoteEmotes.apply(id, anim, active, ts));
                 }
+            } else if (type.equals("morph")) {
+                // 1.7.2: чужой морф сменился на сервисе — применяем мгновенно (адресный пуш:
+                // событие приходит только сокетам, смотрящим этого игрока).
+                UUID id = uuid(obj.get("uuid"));
+                String variant = obj.has("variant") && !obj.get("variant").isJsonNull()
+                        ? obj.get("variant").getAsString() : "";
+                if (id != null) {
+                    Minecraft.getInstance().execute(() -> SyncClient.applyRemoteMorph(id, variant));
+                }
             } else if (type.equals("state") && obj.has("anims") && obj.get("anims").isJsonObject()) {
                 JsonObject anims = obj.getAsJsonObject("anims");
                 Minecraft.getInstance().execute(() -> applySnapshot(anims));
+                if (obj.has("morphs") && obj.get("morphs").isJsonObject()) {
+                    JsonObject morphs = obj.getAsJsonObject("morphs");
+                    Minecraft.getInstance().execute(() -> applyMorphSnapshot(morphs));
+                }
             }
         } catch (Exception ignored) {
             // битое сообщение не должно ронять канал
+        }
+    }
+
+    /**
+     * 1.7.2: морфная половина снапшота «state» (поле morphs). Покрывает watch-лист:
+     * кого нет в снапшоте — у того записи на сервисе нет (снимаем кэш). Морфы игроков
+     * ВНЕ watch-листа не трогаем — за них отвечает обычный HTTP-опрос.
+     */
+    private static void applyMorphSnapshot(JsonObject morphs) {
+        for (Map.Entry<String, JsonElement> e : morphs.entrySet()) {
+            UUID id = uuidString(e.getKey());
+            if (id == null) continue;
+            String v = e.getValue() != null && e.getValue().isJsonPrimitive()
+                    ? e.getValue().getAsString() : "";
+            SyncClient.applyRemoteMorph(id, v);
+        }
+        for (UUID id : lastWatch) {
+            if (!morphs.has(id.toString())) SyncClient.applyRemoteMorph(id, "");
         }
     }
 
@@ -466,6 +533,7 @@ public final class EmoteSync {
         WebSocket socket = ws;
         ws = null;
         wsOpen = false;
+        wsConnecting = false;   // 1.7.1: сброс, чтобы свежий вход в мир мог коннектиться сразу
         if (socket != null) {
             try {
                 socket.sendClose(WebSocket.NORMAL_CLOSURE, "bye");

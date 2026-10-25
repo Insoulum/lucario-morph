@@ -12,6 +12,10 @@ base {
 }
 
 repositories {
+    // Fallback mirrors FIRST: Maven Central rate-limits (HTTP 429) some environments;
+    // Aliyun public is a full Central mirror, GCS is Google's official Central mirror.
+    maven { name = 'AliyunPublic'; url = 'https://maven.aliyun.com/repository/public' }
+    maven { name = 'GcsCentral'; url = 'https://maven-central.storage-download.googleapis.com/maven2' }
     // Mod Menu (optional integration): compile against it, but it is NOT required
     // at runtime — the "modmenu" entrypoint class is only ever loaded by Mod Menu itself.
     maven { name = 'TerraformersMC'; url = 'https://maven.terraformersmc.com/releases/' }

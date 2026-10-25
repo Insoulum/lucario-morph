@@ -63,15 +63,6 @@ public final class SyncConfig {
      * повторная авторизация через Mojang отдаст те же.
      */
     public Map<String, String> serviceTokens = new LinkedHashMap<>();
-    /**
-     * Согласие пользователя на обмен образами через внешний сервис (opt-in).
-     * {@code null} — пользователя ещё не спрашивали (чистая установка): при первом входе
-     * на онлайн-сервер один раз показывается экран согласия. Конфиги, созданные до
-     * появления согласия, при загрузке мигрируют в {@code TRUE} — прежнее поведение
-     * сохраняется, существующих пользователей не дёргаем. Обёртка Boolean (а не примитив):
-     * {@code null} значит «не спрашивали», а {@code false} — осознанный отказ.
-     */
-    public Boolean syncOptIn = null;
 
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static volatile SyncConfig instance;
@@ -92,9 +83,12 @@ public final class SyncConfig {
         }
     }
 
-    /** Синхронизация активна, только когда включена И пользователь явно согласился (opt-in). */
+    /** Синхронизация активна, когда включена в настройках (выключается там же — syncEnabled).
+     *  1.7.4: отдельное согласие (syncOptIn) убрано — оно молча душило синк на свежих
+     *  конфигах, а экран согласия при входе в мир почти всегда проигрывал гонку
+     *  с загрузочным экраном и никогда не показывался. */
     public boolean syncActive() {
-        return syncEnabled && Boolean.TRUE.equals(syncOptIn);
+        return syncEnabled;
     }
 
     private static SyncConfig load(Path file) {
@@ -115,9 +109,6 @@ public final class SyncConfig {
                     if (loaded.serviceTokens != null) {
                         cfg.serviceTokens.putAll(loaded.serviceTokens);
                     }
-                    // Конфиг создан до появления согласия — пользователь уже пользовался
-                    // синхронизацией: мигрируем в TRUE, чтобы не спрашивать заново.
-                    cfg.syncOptIn = loaded.syncOptIn != null ? loaded.syncOptIn : Boolean.TRUE;
                 }
             } catch (Exception e) {
                 LucarioMod.LOGGER.warn("[Lucario Sync] Не удалось прочитать {}, использую значения по умолчанию", file, e);

@@ -41,7 +41,10 @@ import java.util.concurrent.atomic.AtomicInteger;
  *       обновлений считаются брошенными и удаляются); 0 — выключить;</li>
  *   <li>раз в {@code syncIntervalSeconds} секунд клиент запрашивает образы всех игроков,
  *       которые сейчас на сервере, и обновляет локальный кэш {@link ClientMorphs};</li>
- *   <li>если игрок снял образ, сервис возвращает для него пустоту — кэш очищается.</li>
+ *   <li>1.7.3: если морф не выбран, клиент публикует маркер {@link #PRESENT_MARKER}
+ *       («мод есть, дефолтный скин») — запись не удаляется, и база отличает «мод без
+ *       морфа» от «мода нет». Входящие маркеры (события, снапшоты, опрос) трактуются
+ *       как «образа нет»; отрисовке маркер не подлежит — белый список его отбрасывает.</li>
  * </ul>
  *
  * <p>Публикация идёт во <b>все</b> зеркала сразу, чтение — с первого ответившего
@@ -66,6 +69,13 @@ public final class SyncClient {
     /** Пауза между попытками допубликовать образ, если зеркала не ответили. */
     private static final long RETRY_BACKOFF_MS = 30_000L;
 
+    /**
+     * 1.7.3: маркер «мод есть, морф не выбран». Публикуется вместо удаления записи,
+     * сервер 1.5.3+ хранит его как обычную запись. Не настоящий вариант: белый список
+     * {@link Variants} отбрасывает его на приёме, поэтому он никогда не отрисуется.
+     */
+    public static final String PRESENT_MARKER = "__present__";
+
     /** Зеркало, которое последним успешно ответило — пробуем его первым. */
     private static volatile String preferredMirror = null;
     private static long nextCycleMs = 0L;
@@ -83,10 +93,15 @@ public final class SyncClient {
 
     // ============================================================ публикация себя
 
-    /** Публикует образ игрока на все настроенные зеркала (пустая строка = снять образ). */
+    /**
+     * Публикует состояние игрока на все настроенные зеркала. Вариант — ключ из
+     * {@link Variants}; null/пустая строка («дефолтный скин») публикуется как
+     * {@link #PRESENT_MARKER} — постоянная регистрация «мод есть» (1.7.3).
+     */
     public static void publish(String variant) {
         String key = variant == null ? "" : variant;
-        if (!key.isEmpty() && !Variants.isValid(key)) return;
+        if (key.isEmpty()) key = PRESENT_MARKER;
+        if (!PRESENT_MARKER.equals(key) && !Variants.isValid(key)) return;
         pendingPublish = key;
         nextPublishAttemptMs = System.currentTimeMillis() + 5_000L;
         doPublish(key);
@@ -184,6 +199,9 @@ public final class SyncClient {
             if (!v.isEmpty() && Variants.isValid(v)) {
                 ClientMorphs.set(mc.player.getUUID(), v);
                 publish(v); // без согласия (syncActive()) публикация просто сбросится
+            } else {
+                // 1.7.3: морфа нет — публикуем маркер «мод есть» (постоянная регистрация)
+                publish(PRESENT_MARKER);
             }
         }
 
@@ -213,8 +231,9 @@ public final class SyncClient {
                 nextHeartbeatMs = now + hb * 60_000L;
                 UUID self = selfUuid();
                 String current = self == null ? null : ClientMorphs.get(self);
-                if (current != null && !current.isEmpty() && pendingPublish == null) {
-                    doPublish(current);
+                if (pendingPublish == null) {
+                    // 1.7.3: пульс продлевает и маркер «мод есть» (дефолтный скин), не только морф
+                    doPublish(current == null || current.isEmpty() ? PRESENT_MARKER : current);
                 }
             }
         }
@@ -317,11 +336,30 @@ public final class SyncClient {
             if (obj != null && obj.has(key) && !obj.get(key).isJsonNull()) {
                 v = obj.get(key).getAsString();
             }
-            if (v.isEmpty()) {
+            // 1.7.3: маркер «мод есть, морфа нет» для наблюдателя выглядит как «образа нет»
+            if (v.isEmpty() || PRESENT_MARKER.equals(v)) {
                 if (ClientMorphs.get(id) != null) ClientMorphs.set(id, ""); // образ снят на сервисе
             } else if (Variants.isValid(v)) {
                 if (!v.equals(ClientMorphs.get(id))) ClientMorphs.set(id, v);
             }
+        }
+    }
+
+    /**
+     * 1.7.2: применяет ЧУЖОЙ морф, пришедший по WebSocket (событие "morph" или поле
+     * "morphs" в снапшоте "state"). Логика ровно та же, что в {@link #applyBatch}:
+     * пустая строка или маркер {@link #PRESENT_MARKER} = записи-морфа нет (снять),
+     * неизвестный вариант отбрасывается белым списком, дедуп по текущему значению
+     * кэша. Свой UUID игнорируется — свой образ управляется локально и через
+     * публикацию. Вызывается на главном потоке.
+     */
+    static void applyRemoteMorph(UUID id, String variant) {
+        UUID self = selfUuid();
+        if (self == null || id.equals(self)) return;
+        if (variant.isEmpty() || PRESENT_MARKER.equals(variant)) {
+            if (ClientMorphs.get(id) != null) ClientMorphs.set(id, ""); // образ снят на сервисе
+        } else if (Variants.isValid(variant)) {
+            if (!variant.equals(ClientMorphs.get(id))) ClientMorphs.set(id, variant);
         }
     }
 

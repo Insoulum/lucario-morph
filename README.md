@@ -102,10 +102,29 @@ How it works:
   animation is extinguished everywhere by the service after ~30 s;
 * the animation starts from its first keyframe on every screen (each viewer keeps its own clock —
   no clock sync needed); stopping holds the last frame during the crossfade, like locally;
-* no separate switch: emote sync rides the same opt-in as morph sync (`syncEnabled` + the consent
-  screen). Without sync the emote works locally as before.
+* no separate switch: emote sync rides the same switch as morph sync (`syncEnabled`). Without
+  sync the emote works locally as before.
 
 Mirrors older than 1.5.0 simply don't carry emotes — the mod silently uses the mirrors that do.
+
+**1.7.1 fix:** the 1.7.0 reconnect logic could spawn several parallel WebSocket handshakes (one
+per client tick until the callback arrived). Every surplus socket stayed connected as an "orphan"
+(the JDK auto-answers server pings on its own), so the sync service kept counting dead connections —
+the inflated `live: N` in `/health`. 1.7.1 keeps a single handshake in flight, closes a replaced
+socket and ignores orphan deaths; the service side never needed changes.
+
+**1.7.2 — instant morph updates:** the same WebSocket now also carries morphs. The service (1.5.1)
+pushes a `morph` event to the sockets watching that player and includes the morphs of the watched
+set in every snapshot — a morph change and a newly joined player's morph arrive instantly instead
+of within the next poll cycle (requires sync service 1.5.1+; the HTTP poll stays as the fallback,
+so nothing breaks against older services).
+
+**1.7.3 — presence marker:** when NO morph is chosen (fresh install, "turn back to normal", or
+"remember morph" disabled), the client now publishes the special variant `__present__` instead of
+leaving no record (requires sync service 1.5.3+). The service can therefore tell "the mod is
+installed, default skin" apart from "the mod is not installed at all" — that is what the `mods`
+counter in `/health` shows. The marker is heartbeated like a morph; incoming markers (events,
+snapshots, polls) are treated as "no morph" and are never rendered.
 
 ## Commands
 | Command | What it does |
@@ -188,7 +207,7 @@ and repeat `./gradlew build`.
 * **Smooth pose transitions:** every pose switch (glide, stance, dance, walk↔flight) eases through
   exponential blend weights instead of snapping — the elytra tilt ramps up on takeoff and settles on landing.
 * **GUI:** keybinds (L — pick a form, J — animation menu) live in their own "Lucario Morph" category in Controls;
-  a config screen is registered in Mod Menu (sync settings, consent, keybind summary, "choose a form"
+  a config screen is registered in Mod Menu (sync settings, keybind summary, "choose a form"
   picker with Type/Shiny toggles that remember their state). Since 1.6.1 the picker buttons show the
   localized display names ("Lucario (PMD)" instead of the raw "pmd").
 * Network sync (server → all clients), saved to the world.

@@ -19,8 +19,6 @@ import java.util.UUID;
 
 @Environment(EnvType.CLIENT)
 public class LucarioClient implements ClientModInitializer {
-    // Согласие на синхронизацию спрашиваем не чаще одного раза за сессию игры
-    private static boolean consentShownThisSession = false;
 
     @Override
     public void onInitializeClient() {
@@ -76,7 +74,6 @@ public class LucarioClient implements ClientModInitializer {
         ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> {
             SyncClient.onJoin();
             EmoteSync.onJoin();
-            maybeShowConsent(client);
         });
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
             ClientMorphs.clear();
@@ -98,22 +95,4 @@ public class LucarioClient implements ClientModInitializer {
         });
     }
 
-    /**
-     * Согласие на внешнюю синхронизацию: показываем один раз за сессию, только
-     * на сетевых серверах (в одиночной игре/LAN сервис всё равно не используется)
-     * и только если пользователь ещё не делал выбор в настройках.
-     */
-    private static void maybeShowConsent(Minecraft mc) {
-        SyncConfig cfg = SyncConfig.get();
-        if (cfg.syncOptIn != null || consentShownThisSession || mc.hasSingleplayerServer()) {
-            return;
-        }
-
-        consentShownThisSession = true;
-        mc.execute(() -> {
-            if (mc.gui.screen() == null) {
-                mc.setScreenAndShow(new LucarioConsentScreen());
-            }
-        });
-    }
 }
