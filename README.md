@@ -126,6 +126,13 @@ installed, default skin" apart from "the mod is not installed at all" — that i
 counter in `/health` shows. The marker is heartbeated like a morph; incoming markers (events,
 snapshots, polls) are treated as "no morph" and are never rendered.
 
+**1.7.5 — clean mid-session toggle:** turning sync OFF in the settings while you are on a server
+now closes the WebSocket channel immediately (and clears remote emotes) — the same way turning it
+ON starts it. Before, a live socket stayed connected until the next relog: incoming events kept
+arriving and `live` in `/health` stayed inflated. WS messages are also sent strictly one at a time
+now — the 1.7.0 "hello then watch" race could trip the JDK's "Send pending" error and silently
+drop the channel to fallback polling.
+
 ## Commands
 | Command | What it does |
 |---|---|

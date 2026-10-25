@@ -19,6 +19,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -101,6 +102,15 @@ public final class EmoteSync {
     private static volatile long nextWsTryMs = 0L;
     private static volatile long lastWsFailLogMs = 0L;
 
+    /**
+     * 1.7.5: цепочка отправок. JDK-WebSocket запрещает sendText, пока предыдущая
+     * отправка не завершилась («Send pending»): после рукопожатия hello и watch
+     * уходили подряд, и watch почти всегда влетал в ещё не завершившийся hello.
+     * Теперь каждое сообщение встаёт в очередь и уходит строго после предыдущего;
+     * сбой предыдущей отправки очередь не роняет.
+     */
+    private static CompletableFuture<Void> sendChain = CompletableFuture.completedFuture(null);
+
     // ============================================================ запасной опрос
     private static volatile long nextPollMs = 0L;
     private static volatile boolean pollTooOld = false;
@@ -152,7 +162,17 @@ public final class EmoteSync {
     public static void tick(Minecraft mc) {
         if (mc.level == null || mc.getConnection() == null) return;
         SyncConfig cfg = SyncConfig.get();
-        if (!cfg.syncActive() || cfg.serviceUrls.isEmpty()) return;
+        if (!cfg.syncActive() || cfg.serviceUrls.isEmpty()) {
+            // 1.7.5: выключение синка на сервере гасит канал полностью (симметрично
+            // включению): раньше живой WS доживал до перезахода — входящие события
+            // продолжали приходить, а live в /health не падал. Исходящее и так
+            // заглохло, свои записи гасит TTL сервиса.
+            closeWs();               // идемпотентен
+            pendingIntent = null;
+            lastWatch = List.of();   // после повторного включения watch уйдёт заново
+            RemoteEmotes.clear();
+            return;
+        }
         UUID self = mc.player == null ? null : mc.player.getUUID();
         if (self == null) return;   // ещё не заспавнились
         long now = System.currentTimeMillis();
@@ -387,9 +407,16 @@ public final class EmoteSync {
     }
 
     private static void sendText(WebSocket socket, String text) {
-        socket.sendText(text, true).whenComplete((r, err) -> {
-            if (err != null) onWsFailure(err);
-        });
+        synchronized (EmoteSync.class) {
+            sendChain = sendChain
+                    .handle((unused, prevErr) -> (WebSocket) null)   // сбой предыдущей не роняет очередь
+                    .thenCompose(v -> socket.sendText(text, true))   // уходит строго после предыдущей
+                    .whenComplete((r, err) -> {
+                        // сбой отправки = канал мёртв: гасим и переподключаемся по бэкоффу
+                        if (err != null && socket == ws && wsOpen) onWsFailure(err);
+                    })
+                    .thenApply(w -> (Void) null);
+        }
     }
 
     private static void sendWatch(List<UUID> ids) {
@@ -538,6 +565,7 @@ public final class EmoteSync {
             try {
                 socket.sendClose(WebSocket.NORMAL_CLOSURE, "bye");
             } catch (Exception ignored) {
+                socket.abort();   // 1.7.5: pending-отправка мешает close-фрейму — рвём TCP
             }
         }
     }
