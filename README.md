@@ -207,6 +207,15 @@ and repeat `./gradlew build`.
   elytra from the skin, otherwise the player's cape.
 * **Riolu and Mega Lucario:** Riolu assets (model, animations, textures) are taken from the pack;
   Mega Lucario is enabled with `/lucario mega`.
+* **One animation set for all Lucario variants (1.7.6):** every Lucario variant except Mega now plays
+  the standard Lucario animations — 13 per-variant animation files are removed from the jar (six of
+  them were byte-identical copies), cutting the jar by roughly a third of its animation payload.
+  A variant's own `animations/<variant>.animation.json` is still picked up when present — that is how
+  Mega keeps its WIP set; with no file, the species standard (`lucario` / `riolu`) is loaded instead.
+  Side effect: `lucariocafe` regains `specialist`/`specialist_full` and `lucarioholiday` regains
+  `dance` — their old files were missing those emotes, and the standard set has them. `lucariocafe.geo.json`
+  also receives the two `guiding_plate` bones the standard `specialist` animates (every texture already
+  carried the pixels, so no texture edits were needed).
 * Rendering: Bedrock `.geo.json` → ModelPart (including cubes with their own rotation, mirror, inflate).
 * Animations: ground_idle, ground_walk, ground_run (running), water_idle / water_swim (in water), sleep, blink.
   Molang expressions (`math.sin/abs/clamp`, `q.anim_time`) are evaluated by a built-in mini-interpreter.

@@ -234,8 +234,20 @@ public final class LucarioModel {
 
         computeCrouch(d, defs, feet);
         computeSit(d, defs);
-        // анимации
-        Identifier animId = Identifier.fromNamespaceAndPath(LucarioMod.MOD_ID, "animations/" + variant + ".animation.json");
+        // анимации (1.7.6): файл варианта опционален. Есть свой файл — вариант играет
+        // только его (мега так и живёт: её файл не тронут); нет своего — играет стандарт
+        // вида (lucario/riolu). Все обычные варианты Лукарио и оба доп. Риолу делят
+        // один стандартный набор — минус 13 файлов из jar, а у cafe/holiday «сами»
+        // появились specialist и танец, которых в их старых файлах не было. Свой файл
+        // остаётся точкой кастомизации: положили — вариант играет его целиком.
+        Identifier ownAnim = Identifier.fromNamespaceAndPath(LucarioMod.MOD_ID, "animations/" + variant + ".animation.json");
+        Identifier animId = ownAnim;
+        if (rm.getResource(ownAnim).isEmpty()) {
+            String species = variant.startsWith("riolu") ? "riolu" : "lucario";
+            animId = Identifier.fromNamespaceAndPath(LucarioMod.MOD_ID, "animations/" + species + ".animation.json");
+            LucarioMod.LOGGER.info("[Lucario Morph] Вариант {}: своего набора анимаций нет — играю стандарт вида ({})",
+                    variant, animId.getPath());
+        }
         JsonObject anims = readJson(rm, animId).getAsJsonObject("animations");
         for (Map.Entry<String, JsonElement> e : anims.entrySet()) {
             String full = e.getKey();
