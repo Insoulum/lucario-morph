@@ -178,18 +178,21 @@ public final class EmoteSync {
             return;
         }
         UUID self = mc.player == null ? null : mc.player.getUUID();
+        NetDebug.flushChat(); // 1.7.7-debug3: вылить чат-строки, накопленные до спавна
         if (self == null) return;   // ещё не заспавнились
         long now = System.currentTimeMillis();
 
-        // 1) refresh активного эмоута («я ещё играю») — держит запись против TTL
+        // 1) refresh активного эмоута («я ещё играю») — держит запись против TTL.
+        //    1.7.7-debug4: причина рядом с каждым PUT — в логе видно, ПОЧЕМУ ушёл запрос.
         if (liveAnim != null && now >= nextRefreshMs) {
             nextRefreshMs = now + REFRESH_MS;
+            NetDebug.http("эмоут \"" + liveAnim + "\": refresh — держим запись живой (TTL 30 с)");
             enqueueIntent(liveAnim, true);
         }
 
         // 2) повтор недоставленной публикации
         Intent intent = pendingIntent;
-        if (intent != null && now >= nextPublishMs) fireIntent(intent, self);
+        if (intent != null && now >= nextPublishMs) fireIntent(intent, self, true);
 
         // 3) watch-лист ближних игроков: меняется (кто-то вошёл/вышел из зоны) — отсылаем
         List<UUID> watch = nearbyIds(mc, self);
@@ -222,15 +225,29 @@ public final class EmoteSync {
         pendingIntent = intent;
         nextPublishMs = 0L;
         UUID self = selfUuid();
-        if (self != null) fireIntent(intent, self);   // не спавнились — повторит tick()
+        if (self != null) fireIntent(intent, self, false);   // не спавнились — повторит tick()
     }
 
-    private static void fireIntent(Intent intent, UUID self) {
+    private static void fireIntent(Intent intent, UUID self, boolean retry) {
+        // 1.7.7-debug3: гейт «одна попытка на окно» — следующая попытка назначается
+        // ДО запуска запросов. Раньше nextPublishMs обновлялся только в колбэках, т.е.
+        // через ~100–190 мс после отправки, а tick() успевал за это время вызвать
+        // fireIntent ещё 2–4 раза (20 тиков/с): каждое событие старт/стоп/refresh уходило
+        // зеркалам пачкой дубликатов (в debug2-логе это ровно пачки «по 3–4 PUT /v1/anims
+        // на одно нажатие»), а параллельные PUT держали по HTTP-соединению каждый и
+        // раздували conns в /health (скачки 2→6 у одиночного игрока).
+        nextPublishMs = System.currentTimeMillis() + RETRY_MS;
         SyncConfig cfg = SyncConfig.get();
         if (!cfg.syncActive() || cfg.serviceUrls.isEmpty()) {
             pendingIntent = null;
             return;
         }
+        // 1.7.7-debug4: у каждого PUT в чате стоит причина — старт/стоп/refresh/повтор.
+        // Строка печатается только когда запрос РЕАЛЬНО уходит (после гейта согласия),
+        // поэтому «публикую» не врёт ни при выключенном синке, ни при пустых зеркалах.
+        NetDebug.http("эмоут " + (intent.start ? "старт \"" + intent.anim + "\"" : "стоп")
+                + ": PUT (зеркал: " + cfg.serviceUrls.size() + ")"
+                + (retry ? " — повтор недоставленного" : ""));
         String body = GSON.toJson(Map.of(
                 "anim", intent.anim,
                 "state", intent.start ? "start" : "stop",
@@ -246,7 +263,11 @@ public final class EmoteSync {
                 String rec = cfg.serviceTokens.get(raw);
                 if (rec != null && !rec.isEmpty()) rb.header("X-Lucario-Token", rec);
                 HttpRequest req = rb.PUT(HttpRequest.BodyPublishers.ofString(body)).build();
+                long t0 = System.currentTimeMillis();
                 SyncClient.HTTP.sendAsync(req, SyncClient.boundedHandler()).whenComplete((resp, err) -> {
+                    NetDebug.http("PUT " + raw + "/v1/anims/" + NetDebug.shortId(self) + " → "
+                            + (err != null ? "ошибка: " + err : "HTTP " + resp.statusCode())
+                            + " (" + (System.currentTimeMillis() - t0) + " мс)");
                     if (err != null) {
                         failed.incrementAndGet();
                     } else if (resp.statusCode() == 401) {
@@ -282,12 +303,14 @@ public final class EmoteSync {
         String mirror = mirrors.isEmpty() ? null : mirrors.get(0);
         String url = wsUrl(mirror);
         if (url == null) {
+            NetDebug.ws("WS: не строю адрес (зеркало без http/https) — попробую через 30 с");
             nextWsTryMs = System.currentTimeMillis() + WS_BACKOFF_MAX_MS;
             return;
         }
         // 1.7.1: отметка «соединяемся» ставится ДО запуска рукопожатия, а nextWsTryMs
         // заранее отодвигается на горизонт таймаута + запас: если колбэк вовсе не придёт,
         // повтор через 10 с, а не 20 попыток в секунду.
+        NetDebug.ws("WS: подключаюсь к " + url + " (попытка " + (wsAttempt + 1) + ")");
         wsConnecting = true;
         nextWsTryMs = System.currentTimeMillis() + 10_000L;
         try {
@@ -307,6 +330,9 @@ public final class EmoteSync {
                         wsOpen = true;
                         wsAttempt = 0;
                         if (old != null && old != socket) closeQuietly(old);
+                        NetDebug.ws("WS: ОТКРЫТ → " + url);
+                        SyncClient.debugHealth(); // 1.7.7-debug2: сразу счетчик сервера в чат
+                        SyncClient.onWsOpened(); // 1.7.7-debug4: не дублировать свежий полный забор
                         // приветствие + текущий список интересов; дальше сервер пушит сам
                         sendText(socket, GSON.toJson(Map.of("type", "hello", "uuid", self.toString())));
                         sendWatch(lastWatch);
@@ -352,6 +378,9 @@ public final class EmoteSync {
 
             @Override
             public CompletionStage<?> onClose(WebSocket socket, int statusCode, String reason) {
+                NetDebug.ws("WS: закрыт " + (socket == ws ? "активный" : "[осиротевший]")
+                        + ": code=" + statusCode
+                        + (reason == null || reason.isEmpty() ? "" : ", reason=" + reason));
                 // 1.7.1: сигнал «канал упал, переподключайся» даёт ТОЛЬКО активный сокет.
                 // Смерть осиротевшего соединения — обычное дело и не должна будить канал.
                 if (socket == ws) {
@@ -364,6 +393,8 @@ public final class EmoteSync {
 
             @Override
             public void onError(WebSocket socket, Throwable error) {
+                NetDebug.ws("WS: ошибка " + (socket == ws ? "активного" : "[осиротевший]")
+                        + ": " + error);
                 if (socket == ws) {
                     onWsFailure(error);
                 } else {
@@ -397,17 +428,20 @@ public final class EmoteSync {
         if (oldServer) {
             pollTooOld = true;
             nextWsTryMs = now + WS_OLD_SERVER_MS;
+            NetDebug.ws("WS: канал потерян — зеркало старой версии (" + t + "); переподключение через 60 с");
         } else {
             long backoff = Math.min(WS_BACKOFF_BASE_MS * (1L << Math.min(wsAttempt, 5L)),
                     WS_BACKOFF_MAX_MS);
             wsAttempt++;
             nextWsTryMs = now + backoff;
+            NetDebug.ws("WS: канал потерян (" + t + "); переподключение через " + (backoff / 1000) + " с");
         }
         if (now - lastWsFailLogMs > 60_000L) {
             lastWsFailLogMs = now;
             LucarioMod.LOGGER.info("[Lucario Emotes] WS-канал недоступен ({}), работает запасной опрос: {}",
                     oldServer ? "зеркало старой версии" : "ошибка", t.toString());
         }
+        SyncClient.debugHealth(); // 1.7.7-debug2: после потери WS — что видит сервер (conns должен упасть)
     }
 
     private static void sendText(WebSocket socket, String text) {
@@ -566,6 +600,7 @@ public final class EmoteSync {
         wsOpen = false;
         wsConnecting = false;   // 1.7.1: сброс, чтобы свежий вход в мир мог коннектиться сразу
         if (socket != null) {
+            NetDebug.ws("WS: закрываю локально (выход из мира / синк выключен)");
             try {
                 socket.sendClose(WebSocket.NORMAL_CLOSURE, "bye");
             } catch (Exception ignored) {

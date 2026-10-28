@@ -38,6 +38,7 @@ The default mirror is `http://193.164.155.75:8080` (the author's service). Every
   "autoAuth": true,
   "syncIntervalSeconds": 5,
   "heartbeatMinutes": 15,
+  "debugChat": false,
   "serviceUrls": [
     "http://193.164.155.75:8080",
     "http://my-mirror.example.org:8080"
@@ -56,6 +57,11 @@ The default mirror is `http://193.164.155.75:8080` (the author's service). Every
 * `syncIntervalSeconds` — polling period (minimum 2);
 * `heartbeatMinutes` — how often the client silently re-publishes the current morph,
   so the record doesn't go stale on mirrors with a short TTL (0 — disable; default 15);
+* `debugChat` — mirror the sync trace into the chat (`[LM]` for WebSocket events,
+  `[LM-HTTP]` for mirror traffic; default `false`) — with it off the chat stays fully
+  quiet. The log file (latest.log) always carries the full trace plus a status line on
+  world join (build version, sync state, mirrors); enable this when asked to provide a
+  diagnostic log;
 * `serviceUrls` — mirrors: publishing goes to all of them, reading — from the first one that responds.
   Your own server takes a couple of minutes to set up (Docker): the
   [`lucariomorph-server`](https://github.com/Insoulum/lucariomorph-server) repository;
@@ -135,6 +141,15 @@ ON starts it. Before, a live socket stayed connected until the next relog: incom
 arriving and `live` in `/health` stayed inflated. WS messages are also sent strictly one at a time
 now — the 1.7.0 "hello then watch" race could trip the JDK's "Send pending" error and silently
 drop the channel to fallback polling.
+
+**1.7.8 — push-first sync, released:** while the WebSocket is open, morph and emote changes
+arrive by push instantly; HTTP polling is only a fallback — it runs at the
+`syncIntervalSeconds` pace while the WS is down, plus a rare safety re-sync (every 60–120 s)
+that heals frames lost across reconnects (compatible with services down to 1.5.1). Duplicate
+publishes are gone: each emote start/stop/refresh sends exactly one request per window, and
+every request carries its cause. The debug builds' permanent chat trace became the `debugChat`
+option (off by default — the chat stays fully quiet; the log file always has the full trace
+plus a world-join status line with the build version, sync state and mirrors).
 
 ## Commands
 | Command | What it does |

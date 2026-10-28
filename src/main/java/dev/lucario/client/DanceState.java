@@ -74,11 +74,17 @@ public final class DanceState {
          mc.options.setCameraType(CameraType.THIRD_PERSON_BACK);
          switchedCamera = true;
       }
+      // 1.7.7-debug4: событие старта — рядом с ним в чате появится и его PUT.
+      NetDebug.http("эмоут \"" + PreviewState.anim() + "\": старт (клавиша/превью)");
       // 1.7.0: публикуем старт эмоута (внутри — проверка согласия на синхронизацию)
       EmoteSync.publishStart(PreviewState.anim());
    }
 
-   public static void stop() {
+   /**
+    * 1.7.7-debug4: стоп с причиной — причина попадает в чат рядом с соответствующим PUT.
+    * Все прежние вызовы stop() переведены на перегрузку со строкой-причиной.
+    */
+   public static void stop(String cause) {
       boolean wasActive = active();
       long until = untilMs;
       if (until != 0L && startMs != 0L) {
@@ -101,6 +107,7 @@ public final class DanceState {
       // 1.7.0: стоп тоже публикуем — и мгновенно. Даже если стоп-событие потеряется,
       // TTL сервиса погасит эмоут максимум за ~30 с (и пришлёт его как обычный стоп).
       if (wasActive) {
+         NetDebug.http("эмоут: стоп (" + cause + ")");
          EmoteSync.publishStop();
       }
    }
@@ -113,7 +120,7 @@ public final class DanceState {
       }
 
       if (active()) {
-         stop();
+         stop("клавиша");
          return;
       }
 
@@ -146,18 +153,18 @@ public final class DanceState {
 
       LocalPlayer player = mc.player;
       if (player == null) {
-         stop();
+         stop("игрок пропал");
          return;
       }
 
       if (player.isPassenger() || player.isInWater() || player.isFallFlying()) {
-         stop();
+         stop("пассажир/вода/полёт");
          return;
       }
 
       // 1.6.2: taking damage cancels the emote
       if (player.hurtTime > 0) {
-         stop();
+         stop("урон");
          return;
       }
 
@@ -166,7 +173,7 @@ public final class DanceState {
       if (player.input != null) {
          Vec2 move = player.input.getMoveVector();
          if (move.x != 0.0F || move.y != 0.0F) {
-            stop();
+            stop("движение");
          }
       }
    }

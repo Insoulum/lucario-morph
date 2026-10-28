@@ -52,6 +52,16 @@ public final class SyncConfig {
      * Unsafe заполняет отсутствующие примитивы нулём — потеряли бы значение по умолчанию.
      */
     public Integer heartbeatMinutes = Integer.valueOf(15);
+    /**
+     * 1.7.8: дублировать сетевую трассировку в чат (теги [LM] / [LM-HTTP]) — то, что
+     * в 1.7.7-debug было включено всегда. По умолчанию false: чат полностью тихий,
+     * весь след и строка статуса при входе в мир пишутся только в лог (latest.log);
+     * true — вернуть вид debug-сборок целиком.
+     * Обёртка Boolean (а не примитив): у конфигов от 1.7.6 этого поля нет, а Gson через
+     * Unsafe заполняет отсутствующие примитивы значением по умолчанию молча — обёртка
+     * держит явный контракт «нет поля — умолчание», как autoAuth/heartbeatMinutes.
+     */
+    public Boolean debugChat = Boolean.FALSE;
     /** Зеркала сервиса синхронизации. Публикация идёт во все, чтение — с первого ответившего. */
     public List<String> serviceUrls = new ArrayList<>(List.of(DEFAULT_SERVICE));
     /** Образ игрока (без него пришлось бы вводить /lucario при каждом входе). */
@@ -91,6 +101,11 @@ public final class SyncConfig {
         return syncEnabled;
     }
 
+    /** 1.7.8: дублировать сетевую трассировку в чат (см. {@link #debugChat}). */
+    public boolean debugChatOn() {
+        return Boolean.TRUE.equals(debugChat);
+    }
+
     private static SyncConfig load(Path file) {
         SyncConfig cfg = new SyncConfig(file);
         if (Files.exists(file)) {
@@ -102,6 +117,7 @@ public final class SyncConfig {
                     if (loaded.autoAuth != null) cfg.autoAuth = loaded.autoAuth;
                     cfg.syncIntervalSeconds = loaded.syncIntervalSeconds;
                     if (loaded.heartbeatMinutes != null) cfg.heartbeatMinutes = loaded.heartbeatMinutes;
+                    if (loaded.debugChat != null) cfg.debugChat = loaded.debugChat;
                     cfg.lastVariant = loaded.lastVariant == null ? "" : loaded.lastVariant;
                     if (loaded.serviceUrls != null && !loaded.serviceUrls.isEmpty()) {
                         cfg.serviceUrls = new ArrayList<>(loaded.serviceUrls);
@@ -125,6 +141,7 @@ public final class SyncConfig {
         if (cfg.heartbeatMinutes == null) cfg.heartbeatMinutes = 15;
         if (cfg.heartbeatMinutes < 0) cfg.heartbeatMinutes = 0;   // отрицательное = выключено
         if (cfg.autoAuth == null) cfg.autoAuth = Boolean.TRUE;
+        if (cfg.debugChat == null) cfg.debugChat = Boolean.FALSE;
         if (!cfg.lastVariant.isEmpty() && !Variants.isValid(cfg.lastVariant)) cfg.lastVariant = "";
         // Токены: ключи приводим к тому же виду, что и serviceUrls (без хвостового «/»)
         Map<String, String> tokens = new LinkedHashMap<>();

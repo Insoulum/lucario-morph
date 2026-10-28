@@ -97,6 +97,13 @@ public final class SyncClient {
     /** Образ, который ещё не удалось опубликовать на все зеркала (кandidat для ретрая). */
     private static volatile String pendingPublish = null;
     private static volatile long nextPublishAttemptMs = 0L;
+    /** 1.7.7-debug2: троттлинг запросов /health (сам зонд тоже занимает conn и лимит запросов). */
+    private static volatile long lastHealthMs = 0L;
+    /** 1.7.7-debug4: момент последнего ПОЛНОГО забора (цикл или ресинк). Нужен, чтобы
+     *  страховочный ресинк при открытии WS не дублировал свежий полный GET: при каждом
+     *  входе в мир обычный цикл успевал отработать (WS коннектится ~0.5 с), а затем
+     *  «страховка» делала ВТОРОЙ такой же GET /v1/morphs — страховывать было нечего. */
+    private static volatile long lastFullFetchMs = 0L;
 
     private SyncClient() {}
 
@@ -139,7 +146,11 @@ public final class SyncClient {
                 String rec = cfg.serviceTokens.get(raw); // токен записи этого зеркала (выдаётся автоматически)
                 if (rec != null && !rec.isEmpty()) rb.header("X-Lucario-Token", rec);
                 HttpRequest req = rb.PUT(HttpRequest.BodyPublishers.ofString(body)).build();
+                long t0 = System.currentTimeMillis();
                 HTTP.sendAsync(req, boundedHandler()).whenComplete((resp, err) -> {
+                    NetDebug.http("PUT " + raw + "/v1/morphs/" + NetDebug.shortId(self) + " → "
+                            + (err != null ? "ошибка: " + err : "HTTP " + resp.statusCode())
+                            + " (" + (System.currentTimeMillis() - t0) + " мс)");
                     if (err != null) {
                         failed.incrementAndGet();
                         logPublishFail(raw, err);
@@ -195,6 +206,27 @@ public final class SyncClient {
         nextCycleMs = 0L; // первый опрос — как можно раньше
         nextResyncMs = 0L; // 1.7.7: первый полный забор — даже если WS уже открыт
         nextHeartbeatMs = 0L; // расписание «пульса» начнётся заново (после публикации при входе)
+        // 1.7.7-debug4: самопрезентация билда — каждый лог теперь говорит, с какой версии
+        // он снят и с какими зеркалами клиент живёт (прекращаем гадать «debug2 или debug3?»).
+        SyncConfig cfg0 = SyncConfig.get();
+        NetDebug.http("клиент LucarioMorph " + NetDebug.modVersion()
+                + " | синк: " + (cfg0.syncActive() ? "вкл" : "выкл")
+                + " | зеркал: " + cfg0.serviceUrls.size() + " " + cfg0.serviceUrls);
+        debugHealth(); // 1.7.7-debug2: стартовая точка «что видит сервер»
+    }
+
+    /** 1.7.7-debug4: WS только что открылся. Если полный забор уже был в последние 30 с
+     *  (обычный цикл при входе — всегда успевает раньше: WS ещё коннектится), а ресинк
+     *  к этому моменту должен был бы уйти немедленно (nextResyncMs в прошлом или 0) —
+     *  переносим его на полный интервал: снапшот текущего состояния и так придёт по WS
+     *  (watch → «state»), а свежий полный GET уже был. */
+    static void onWsOpened() {
+        long now = System.currentTimeMillis();
+        if (now - lastFullFetchMs < 30_000L && nextResyncMs <= now) {
+            nextResyncMs = now + RESYNC_MS;
+            NetDebug.http("WS открыт: полный забор уже был " + (now - lastFullFetchMs)
+                    + " мс назад — ресинк через " + (RESYNC_MS / 1000) + " с");
+        }
     }
 
     /** Вызывается каждый клиентский тик. */
@@ -264,6 +296,8 @@ public final class SyncClient {
         if (wsUp) nextResyncMs = now + base + jitter;
         else nextCycleMs = now + base + jitter;
 
+        debugHealth(); // 1.7.7-debug2: рядом с каждым циклом опроса — что видит сервер
+
         UUID self = selfUuid();
         List<UUID> ids = new ArrayList<>();
         for (PlayerInfo info : mc.getConnection().getOnlinePlayers()) {
@@ -271,8 +305,44 @@ public final class SyncClient {
             if (self == null || !self.equals(id)) ids.add(id);
         }
         if (ids.isEmpty()) return;
+        lastFullFetchMs = now; // 1.7.7-debug4: полный забор уходит прямо сейчас
         for (int i = 0; i < ids.size(); i += BATCH) {
             fetchAndApply(mc, List.copyOf(ids.subList(i, Math.min(ids.size(), i + BATCH))), self);
+        }
+    }
+
+    /** 1.7.7-debug2: GET /health приоритетного зеркала — строчка в чат «что видит сервер».
+     *  conns в /health — ВСЕ TCP-соединения процесса (HTTP keep-alive + WS + мониторы +
+     *  чужие проверки), live — только WS-клиенты мода. Разница между conns и live (минус
+     *  свои HTTP-запросы, видно в чате) и есть чужие соединения; их имена (IP:порт)
+     *  показывает только лог сервера с CONN_DEBUG=1. Троттлинг 30 с, чтобы сам зонд
+     *  не раздувал conns и не выедал лимит запросов. */
+    static void debugHealth() {
+        SyncConfig cfg = SyncConfig.get();
+        if (!cfg.syncActive() || cfg.serviceUrls.isEmpty()) return;
+        long now = System.currentTimeMillis();
+        if (now - lastHealthMs < 30_000L) return;
+        lastHealthMs = now;
+        fetchJson(orderedMirrors(cfg), 0, "/health").whenComplete((obj, err) -> {
+            if (err != null) {
+                NetDebug.http("/health сервера → недоступно (" + err + ")");
+                return;
+            }
+            NetDebug.http("/health сервера: conns=" + jsonStr(obj, "conns")
+                    + " live=" + jsonStr(obj, "live")
+                    + " players=" + jsonStr(obj, "players")
+                    + " mods=" + jsonStr(obj, "mods")
+                    + " версия=" + jsonStr(obj, "version"));
+        });
+    }
+
+    /** Значение поля JSON-ответа строкой («?» — поля нет/ответ кривой). */
+    private static String jsonStr(JsonObject obj, String key) {
+        if (obj == null || !obj.has(key) || obj.get(key).isJsonNull()) return "?";
+        try {
+            return obj.get(key).getAsString();
+        } catch (Exception e) {
+            return String.valueOf(obj.get(key));
         }
     }
 
@@ -306,6 +376,9 @@ public final class SyncClient {
                     new IllegalStateException("все зеркала недоступны"));
         }
         String url = mirrors.get(idx) + pathAndQuery;
+        NetDebug.http("GET " + NetDebug.clip(url) + " отправляю"
+                + (idx > 0 ? " [зеркало #" + (idx + 1) + "]" : ""));
+        long t0 = System.currentTimeMillis();
         HttpRequest req;
         try {
             req = HttpRequest.newBuilder(URI.create(url))
@@ -315,7 +388,11 @@ public final class SyncClient {
         } catch (Exception e) {
             return fetchJson(mirrors, idx + 1, pathAndQuery);
         }
-        return HTTP.sendAsync(req, boundedHandler()).thenCompose(resp -> {
+        return HTTP.sendAsync(req, boundedHandler()).whenComplete((resp, err) ->
+                NetDebug.http("GET " + NetDebug.clip(url) + " → "
+                        + (err != null ? "ошибка: " + err : "HTTP " + resp.statusCode())
+                        + " (" + (System.currentTimeMillis() - t0) + " мс)")
+        ).thenCompose(resp -> {
             if (resp.statusCode() == 200) {
                 try {
                     JsonObject obj = GSON.fromJson(resp.body(), JsonObject.class);
