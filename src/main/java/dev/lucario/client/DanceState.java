@@ -74,14 +74,14 @@ public final class DanceState {
          mc.options.setCameraType(CameraType.THIRD_PERSON_BACK);
          switchedCamera = true;
       }
-      // 1.7.7-debug4: событие старта — рядом с ним в чате появится и его PUT.
+      // 1.7.7-debug4: событие старта — рядом с ним в трассировке появится и его PUT.
       NetDebug.http("эмоут \"" + PreviewState.anim() + "\": старт (клавиша/превью)");
       // 1.7.0: публикуем старт эмоута (внутри — проверка согласия на синхронизацию)
       EmoteSync.publishStart(PreviewState.anim());
    }
 
    /**
-    * 1.7.7-debug4: стоп с причиной — причина попадает в чат рядом с соответствующим PUT.
+    * 1.7.7-debug4: стоп с причиной — причина попадает в трассировку рядом с соответствующим PUT.
     * Все прежние вызовы stop() переведены на перегрузку со строкой-причиной.
     */
    public static void stop(String cause) {

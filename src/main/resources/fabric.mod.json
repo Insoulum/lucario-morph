@@ -3,7 +3,7 @@
   "id": "lucariomod",
   "version": "${version}",
   "name": "Lucario Morph",
-  "description": "Play as Lucario, Mega Lucario or Riolu: the /lucario and /riolu commands replace the player model (models and animations from Lucario Overhaul by JoeSeff). Works on servers without the mod too: morphs and emote animations sync through an external service (you can add your own mirror in the config), and your morph record is automatically protected against spoofing via Mojang authentication.",
+  "description": "Play as Lucario, Mega Lucario or Riolu: the /lucario and /riolu commands replace the player model (models and animations from Lucario Overhaul by JoeSeff). Client-side only: works on any server, even vanilla — morphs and emote animations sync through an external service (you can add your own mirror in the config), and your morph record is automatically protected against spoofing via Mojang authentication.",
   "authors": [
     "Insoulum",
     "JoeSeff"
@@ -13,11 +13,8 @@
     "issues": "https://github.com/Insoulum/lucario-morph/issues"
   },
   "license": "MIT",
-  "environment": "*",
+  "environment": "client",
   "entrypoints": {
-    "main": [
-      "dev.lucario.LucarioMod"
-    ],
     "client": [
       "dev.lucario.client.LucarioClient"
     ],

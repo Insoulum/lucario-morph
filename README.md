@@ -6,20 +6,16 @@ The Lucario look and animations are visible to every player on the server who ha
 ## Installation
 Requires Minecraft 26.3, Fabric Loader ≥ 0.19.5 and [Fabric API](https://modrinth.com/mod/fabric-api) 0.165.0+26.3.
 1. Install Fabric Loader via the official installer: https://fabricmc.net/use
-2. Put `lucariomorph-fabric-26.3-1.6.1.jar` and Fabric API into the `mods` folder.
-3. Then pick one of two options:
-   * **Modded server** (classic mode): put the jar on the server as well. The `/lucario` and `/riolu`
-     commands are registered by the server, the choice is saved in the world folder, and the morph is visible
-     to everyone who has the mod.
-   * **Server without the mod** (sync mode): the client alone is enough. The commands work right from the client,
-     the morph is remembered in the config and passed between players through an external service —
-     see the section below.
+2. Put `lucariomorph-fabric-26.3-1.8.0.jar` and Fabric API into the `mods` folder **of your client**.
+   The mod is client-side only: servers do not need it and will not load it (`"environment": "client"` in
+   `fabric.mod.json`) — it works on vanilla servers, modded servers, everything.
+3. The morph is passed between players through an external sync service — see the section below.
 
 Ready-made jars are in [Releases](../../releases).
 
-## Playing on servers without the mod (service-based sync)
-Since 1.3.0 the mod does not require installation on the server: player morphs are synced through
-an external HTTP service. It works like this:
+## Sync through the external service (the only sync channel)
+Since 1.3.0 — and the ONLY way since 1.8.0, when the built-in server-side mode was removed — player
+morphs are synced through an external HTTP service. It works like this:
 * your client publishes "my UUID → my morph" to a service mirror on morph change and on world join,
   and then every 15 minutes (the `heartbeatMinutes` setting) silently refreshes the record — the "pulse";
 * morph changes arrive instantly over WebSocket push while the socket is open; a full HTTP
@@ -151,6 +147,15 @@ every request carries its cause. The debug builds' permanent chat trace became t
 option (off by default — the chat stays fully quiet; the log file always has the full trace
 plus a world-join status line with the build version, sync state and mirrors).
 
+**1.8.0 — client-only, server-side removed:** the mod no longer runs on Minecraft servers at all
+(`"environment": "client"`; the `main` entrypoint, the `lucariomod:morph` payload, the server-side
+`/lucario`-`/riolu` registration and the per-world `lucariomod_morphs.json` storage are gone).
+Everything a server used to do now belongs to the external sync service: morphs and emotes reach other
+players the same way they did in 1.7.x — publish + WebSocket push + fallback poll. Practically nothing
+changes for players: the client commands worked from the client since 1.6.x, and the world-folder
+storage only ever duplicated what the service already kept (plus the config's `lastVariant`, which still
+follows you across servers). Maintenance gets much simpler: one code path instead of two.
+
 ## Commands
 | Command | What it does |
 |---|---|
@@ -168,10 +173,8 @@ Full variant names also work (backwards compatibility): `lucariocaptain`, `lucar
 Lucario short names: cafe, captain, chef, concert, costumeparty, holiday, martialarts, mega, pmd, psmd, ruins, space
 (no argument — regular Lucario). Riolu: pmd, psmd (no argument — regular Riolu).
 
-The commands work in two modes: on a modded server — as server-side ones (the choice is saved in the world
-folder, `lucariomod_morphs.json`), on a server without the mod — as client-side ones (the morph is remembered
-in the client config and passed through the sync service). Fabric resolves the priority itself:
-if the server knows the command, the server-side version runs.
+The commands are registered client-side (Fabric's client command API). If a server happens to have its own
+`/lucario` from a datapack or another mod, that server-side command wins — standard brigadier priority.
 
 ## Building from source
 
@@ -244,11 +247,10 @@ and repeat `./gradlew build`.
   a config screen is registered in Mod Menu (sync settings, keybind summary, "choose a form"
   picker with Type/Shiny toggles that remember their state). Since 1.6.1 the picker buttons show the
   localized display names ("Lucario (PMD)" instead of the raw "pmd").
-* Network sync (server → all clients), saved to the world.
-* **Servers without the mod:** the morph is remembered in the client config and synced through an
-  external HTTP service with mirror support (`config/lucariomorph.json`, the
+* **Client-side sync to the external HTTP service** with mirror support (`config/lucariomorph.json`, the
   [`lucariomorph-server`](https://github.com/Insoulum/lucariomorph-server) repository); the record
-  is refreshed automatically by the "pulse" every `heartbeatMinutes` minutes.
+  is refreshed automatically by the "pulse" every `heartbeatMinutes` minutes. Since 1.8.0 this is the
+  only sync channel — the mod does not run on servers.
 * **Record protection** (automatic): account ownership is proven through the Mojang session servers
   (challenge → join → verify), mirrors store the token and require it on write.
   The token is recoverable: after deleting the config, re-authorization returns the same one.

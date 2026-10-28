@@ -242,7 +242,7 @@ public final class EmoteSync {
             pendingIntent = null;
             return;
         }
-        // 1.7.7-debug4: у каждого PUT в чате стоит причина — старт/стоп/refresh/повтор.
+        // 1.7.7-debug4: у каждого PUT в трассировке стоит причина — старт/стоп/refresh/повтор.
         // Строка печатается только когда запрос РЕАЛЬНО уходит (после гейта согласия),
         // поэтому «публикую» не врёт ни при выключенном синке, ни при пустых зеркалах.
         NetDebug.http("эмоут " + (intent.start ? "старт \"" + intent.anim + "\"" : "стоп")
@@ -331,7 +331,7 @@ public final class EmoteSync {
                         wsAttempt = 0;
                         if (old != null && old != socket) closeQuietly(old);
                         NetDebug.ws("WS: ОТКРЫТ → " + url);
-                        SyncClient.debugHealth(); // 1.7.7-debug2: сразу счетчик сервера в чат
+                        SyncClient.debugHealth(); // 1.7.7-debug2: сразу счетчик сервера в трассировку
                         SyncClient.onWsOpened(); // 1.7.7-debug4: не дублировать свежий полный забор
                         // приветствие + текущий список интересов; дальше сервер пушит сам
                         sendText(socket, GSON.toJson(Map.of("type", "hello", "uuid", self.toString())));

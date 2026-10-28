@@ -1,21 +1,15 @@
 package dev.lucario.client;
 
-import dev.lucario.Variants;
-import dev.lucario.net.MorphPayload;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
-import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.fabricmc.fabric.api.resource.ResourceManagerHelper;
 import net.fabricmc.fabric.api.resource.SimpleSynchronousResourceReloadListener;
-import net.minecraft.client.Minecraft;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.packs.PackType;
 import net.minecraft.server.packs.resources.ResourceManager;
-
-import java.util.UUID;
 
 @Environment(EnvType.CLIENT)
 public class LucarioClient implements ClientModInitializer {
@@ -24,7 +18,8 @@ public class LucarioClient implements ClientModInitializer {
     public void onInitializeClient() {
         // Читаем/создаём config/lucariomorph.json
         SyncConfig.get();
-        // Клиентские /lucario и /riolu — работают на серверах без мода
+        // Клиентские /lucario и /riolu — образ применяется локально и уходит
+        // в сервис синхронизации, так что его видят другие игроки с модом
         LucarioClientCommands.register();
         // Клавиши: L — выбор образа, J — танец
         KeyBindings.register();
@@ -44,33 +39,9 @@ public class LucarioClient implements ClientModInitializer {
                 }
         );
 
-        // Классический канал: сервер с модом сообщает, кто во что превратился
-        ClientPlayNetworking.registerGlobalReceiver(MorphPayload.ID, (payload, context) -> {
-            try {
-                UUID id = UUID.fromString(payload.uuid());
-                // Не доверяем вариантам из сети: враждебный сервер может заспамить
-                // клиент мусорными ключами и ошибками загрузки моделей.
-                String v = payload.variant() == null ? "" : payload.variant();
-                if (!v.isEmpty() && !Variants.isValid(v)) {
-                    return;
-                }
-
-                ClientMorphs.set(id, v);
-                // Если это про нас самих — запоминаем образ (он «следует» за игроком
-                // на другие серверы) и обновляем сервис синхронизации.
-                Minecraft mc = Minecraft.getInstance();
-                if (mc.player != null && mc.player.getUUID().equals(id)) {
-                    SyncConfig cfg = SyncConfig.get();
-                    if (!v.equals(cfg.lastVariant)) {
-                        cfg.lastVariant = v;
-                        cfg.save();
-                        SyncClient.publish(v);
-                    }
-                }
-            } catch (IllegalArgumentException ignored) {
-            }
-        });
-
+        // С 1.8.0 серверного канала нет: мод не работает на выделенных серверах,
+        // чужие образы приходят только через сервис синхронизации (SyncClient —
+        // WebSocket-push + запасной HTTP-опрос).
         ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> {
             SyncClient.onJoin();
             EmoteSync.onJoin();

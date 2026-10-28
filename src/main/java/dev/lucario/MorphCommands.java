@@ -9,10 +9,9 @@ import java.util.UUID;
 import net.minecraft.network.chat.Component;
 
 /**
- * Patch 16: shared tree builder for the /lucario and /riolu commands.
- * The same tree is used for the server-side (CommandSourceStack) and
- * client-side (FabricClientCommandSource) commands — previously ~40 lines
- * were copy-pasted between LucarioMod and LucarioClientCommands.
+ * Shared tree builder for the /lucario and /riolu commands. Since 1.8.0 the mod is
+ * client-only, so the tree is used by the client side (LucarioClientCommands) via the
+ * Bridge adapter — the tree itself stays free of environment-specific imports.
  */
 public final class MorphCommands {
    private MorphCommands() {

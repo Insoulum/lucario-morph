@@ -70,9 +70,9 @@ final class NetDebug {
         return url.length() <= 110 ? url : url.substring(0, 110) + "…(" + url.length() + " симв)";
     }
 
-    /** 1.7.7-debug4: версия мода из fabric.mod.json — строка самопрезентации в чате
-     *  при каждом входе в мир, чтобы лог всегда говорил, с какого билда он снят
-     *  (больше не гадаем «debug2 или debug3?» по косвенным признакам). */
+    /** 1.7.7-debug4: версия мода из fabric.mod.json — строка самопрезентации при
+     *  каждом входе в мир (1.7.8: всегда в лог, в чат — только при debugChat), чтобы
+     *  лог всегда говорил, с какого билда он снят («debug2 или debug3?» — не гадаем). */
     static String modVersion() {
         try {
             return FabricLoader.getInstance().getModContainer("lucariomod")

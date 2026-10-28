@@ -29,7 +29,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * Синхронизация образов через внешний HTTP-сервис — для серверов, где мод <b>не</b> установлен.
+ * Синхронизация образов через внешний HTTP-сервис. С 1.8.0 это единственный канал
+ * видимости образов: мод чисто клиентский и на сервере не устанавливается.
  *
  * <p>Как это работает (схема «как у Figura»):</p>
  * <ul>
@@ -311,10 +312,10 @@ public final class SyncClient {
         }
     }
 
-    /** 1.7.7-debug2: GET /health приоритетного зеркала — строчка в чат «что видит сервер».
+    /** 1.7.7-debug2: GET /health приоритетного зеркала — строчка в трассировку «что видит сервер».
      *  conns в /health — ВСЕ TCP-соединения процесса (HTTP keep-alive + WS + мониторы +
      *  чужие проверки), live — только WS-клиенты мода. Разница между conns и live (минус
-     *  свои HTTP-запросы, видно в чате) и есть чужие соединения; их имена (IP:порт)
+     *  свои HTTP-запросы, видно в трассировке) и есть чужие соединения; их имена (IP:порт)
      *  показывает только лог сервера с CONN_DEBUG=1. Троттлинг 30 с, чтобы сам зонд
      *  не раздувал conns и не выедал лимит запросов. */
     static void debugHealth() {
@@ -426,7 +427,7 @@ public final class SyncClient {
     /** Применяет ответы сервиса к кэшу рендера. Вызывается на главном потоке клиента. */
     private static void applyBatch(List<UUID> batch, JsonObject obj, UUID self) {
         for (UUID id : batch) {
-            if (id.equals(self)) continue; // свой образ управляется локально/сервером
+            if (id.equals(self)) continue; // свой образ управляется локально (MorphApplier)
             String key = id.toString();
             String v = "";
             if (obj != null && obj.has(key) && !obj.get(key).isJsonNull()) {
