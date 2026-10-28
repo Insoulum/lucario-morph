@@ -22,7 +22,10 @@ Since 1.3.0 the mod does not require installation on the server: player morphs a
 an external HTTP service. It works like this:
 * your client publishes "my UUID → my morph" to a service mirror on morph change and on world join,
   and then every 15 minutes (the `heartbeatMinutes` setting) silently refreshes the record — the "pulse";
-* every few seconds the client asks the mirror for the morphs of everyone currently on the server;
+* morph changes arrive instantly over WebSocket push while the socket is open; a full HTTP
+  poll of everyone on the server is only a FALLBACK — it runs at the `syncIntervalSeconds`
+  pace while the WS is down, plus a rare safety re-sync (every 60–120 s) that heals lost
+  frames and mirrors without morph push (services older than 1.5.1);
 * when you clear your morph (`/lucario off`), it disappears for everyone else too.
 
 The default mirror is `http://193.164.155.75:8080` (the author's service). Everything is configurable in

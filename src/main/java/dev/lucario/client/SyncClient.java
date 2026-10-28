@@ -39,8 +39,12 @@ import java.util.concurrent.atomic.AtomicInteger;
  *   <li>раз в {@code heartbeatMinutes} минут клиент тихо перепубликует текущий образ
  *       («пульс»), чтобы запись не протухла на зеркалах с коротким TTL (записи без
  *       обновлений считаются брошенными и удаляются); 0 — выключить;</li>
- *   <li>раз в {@code syncIntervalSeconds} секунд клиент запрашивает образы всех игроков,
- *       которые сейчас на сервере, и обновляет локальный кэш {@link ClientMorphs};</li>
+ *   <li>1.7.7: полный HTTP-опрос всех игроков на сервере — запасной путь. Пока WS открыт
+ *       ({@link EmoteSync}), изменения приходят пушем мгновенно, и опрос ходит лишь раз
+ *       в 60–120 с — страховка от потерянных при переподключении фреймов и от старых
+ *       зеркал, где WS есть, а адресного пуша морфов ещё нет (сервисы до 1.5.1).
+ *       WS закрыт — опрос возвращается к {@code syncIntervalSeconds} и снова несёт
+ *       локальный кэш {@link ClientMorphs};</li>
  *   <li>1.7.3: если морф не выбран, клиент публикует маркер {@link #PRESENT_MARKER}
  *       («мод есть, дефолтный скин») — запись не удаляется, и база отличает «мод без
  *       морфа» от «мода нет». Входящие маркеры (события, снапшоты, опрос) трактуются
@@ -79,6 +83,11 @@ public final class SyncClient {
     /** Зеркало, которое последним успешно ответило — пробуем его первым. */
     private static volatile String preferredMirror = null;
     private static long nextCycleMs = 0L;
+    /** 1.7.7: страховочный полный опрос при живом WS — база 90 с ±33% (итого 60–120 с).
+     *  Лечит потерянные при переподключениях пуш-фреймы и зеркала, где WS есть, а пуша
+     *  морфов ещё нет (сервисы до 1.5.1). */
+    private static final long RESYNC_MS = 90_000L;
+    private static long nextResyncMs = 0L;
     /** Следующий «пульс» — тихая перепубликация текущего образа (мс epoch; 0 = расписание не начато). */
     private static volatile long nextHeartbeatMs = 0L;
     private static final AtomicBoolean lastCycleFailed = new AtomicBoolean(false);
@@ -184,6 +193,7 @@ public final class SyncClient {
     public static void onJoin() {
         pendingApply = true;
         nextCycleMs = 0L; // первый опрос — как можно раньше
+        nextResyncMs = 0L; // 1.7.7: первый полный забор — даже если WS уже открыт
         nextHeartbeatMs = 0L; // расписание «пульса» начнётся заново (после публикации при входе)
     }
 
@@ -238,12 +248,21 @@ public final class SyncClient {
             }
         }
 
-        if (now < nextCycleMs) return;
-        // ±15% случайного разброса к интервалу опроса, чтобы множество клиентов
-        // не били в зеркала синхронно.
-        long base = cfg.syncIntervalSeconds * 1000L;
-        long jitter = (long) ((ThreadLocalRandom.current().nextDouble() - 0.5) * base * 0.3);
-        nextCycleMs = now + base + jitter;
+        // 1.7.7: полный опрос — запасной путь. Пока WS открыт (EmoteSync), изменения
+        // морфов приходят пушем мгновенно; частый опрос здесь лишь дублировал бы их
+        // нагрузкой на сервис. Живой WS -> редкий страховочный ресинк, WS закрыт ->
+        // обычный опрос по syncIntervalSeconds.
+        boolean wsUp = EmoteSync.wsOpen();
+        if (wsUp) {
+            if (now < nextResyncMs) return;
+        } else if (now < nextCycleMs) return;
+        // Случайный разброс к интервалу, чтобы множество клиентов не били в зеркала
+        // синхронно: ±15% у обычного опроса, ±33% у страховки (итого 60–120 с).
+        long base = wsUp ? RESYNC_MS : cfg.syncIntervalSeconds * 1000L;
+        long jitter = (long) ((ThreadLocalRandom.current().nextDouble() - 0.5) * base
+                * (wsUp ? 0.66 : 0.3));
+        if (wsUp) nextResyncMs = now + base + jitter;
+        else nextCycleMs = now + base + jitter;
 
         UUID self = selfUuid();
         List<UUID> ids = new ArrayList<>();
