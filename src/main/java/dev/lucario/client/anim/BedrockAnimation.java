@@ -10,11 +10,11 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/** Анимация в формате Bedrock (.animation.json): rotation и position по костям, ключевые кадры и Molang. */
+/** A Bedrock-format animation (.animation.json): rotation and position per bone, keyframes, and Molang. */
 public final class BedrockAnimation {
     public final String name;
     public final boolean loop;
-    /** Длина в секундах; 0 = не задана (время идёт без зацикливания). */
+    /** Length in seconds; 0 = unset (time runs on without looping). */
     public final double length;
 
     private final Map<String, Track> tracks = new HashMap<>();
@@ -92,15 +92,15 @@ public final class BedrockAnimation {
         }
     }
 
-    /** Привести время к рабочему диапазону анимации. */
+    /** Clamp the time into the animation's working range. */
     public double wrap(double time) {
         if (length > 0) return loop ? time % length : Math.min(time, length);
         return time;
     }
 
     /**
-     * Записывает в rot (градусы) и pos (единицы модели) смещения кости. Если кости нет — нули.
-     * @return true, если кость в анимации есть
+     * Writes the bone's offsets into rot (degrees) and pos (model units); zeros if the bone is absent.
+     * @return true if the bone is present in the animation
      */
     public boolean sample(String bone, double time, float[] rot, float[] pos) {
         Track tr = tracks.get(bone);
@@ -117,7 +117,7 @@ public final class BedrockAnimation {
         return true;
     }
 
-    // ---------- разбор ----------
+    // ---------- parsing ----------
 
     private static Molang.Expr[] vec(JsonElement e) {
         Molang.Expr[] r = new Molang.Expr[3];
@@ -141,7 +141,7 @@ public final class BedrockAnimation {
                 try {
                     time = Double.parseDouble(en.getKey());
                 } catch (NumberFormatException ex) {
-                    continue; // служебные поля (например "lerp_mode" на уровне канала)
+                    continue; // auxiliary fields (e.g. "lerp_mode" at the channel level)
                 }
                 Key k = new Key();
                 k.time = time;

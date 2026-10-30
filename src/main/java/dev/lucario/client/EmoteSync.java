@@ -24,64 +24,64 @@ import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * 1.7.0: синхронизация эмоутов между игроками через сервис синхронизации
- * (сервер LucarioSync 1.5.0+). Работает на любых серверах — как и синхронизация образов.
+ * 1.7.0: emote sync between players through the sync service (LucarioSync server
+ * 1.5.0+). Works on any server - just like morph sync.
  * <p>
- * Три канала и их роли:
+ * Three channels and their roles:
  * <ol>
- *   <li><b>Публикация себя (HTTP PUT во все зеркала)</b> — момент старта/стопа эмоута.
- *       Ничего не ждём: событие улетает немедленно; если зеркала не ответили, intent
- *       повторяется каждые 3 с, пока не дойдёт (более свежее событие вытесняет старое).</li>
- *   <li><b>Refresh (PUT раз в 10 с, пока эмоут играет)</b> — держит запись живой:
- *       у записи на сервисе TTL 30 с. Вылет/обрыв связи гасит эмоут у всех максимум
- *       через ~30 с, причём «гашение» ПРИХОДИТ как обычное событие стопа.</li>
- *   <li><b>Приём (WebSocket /ws приоритетного зеркала)</b> — мгновенный пуш событий
- *       «только рядом» ({@code mc.level.players()} = отслеживаемые игроки; это и есть
- *       зона видимости). Сокет подписан списком UUID ({@code watch}); при смене списка
- *       (кто-то вошёл/вышел из зоны) список отправляется заново, а сервер сразу
- *       отвечает снимком текущих эмоутов — никто не пропадает мимо кадра. С 1.7.2 тот
- *       же сокет доставляет и морфы: событие «morph» и морфную половину снимка
- *       («morphs») — смена образа видна мгновенно, HTTP-опрос остаётся страховкой.</li>
+ *   <li><b>Publishing self (HTTP PUT to every mirror)</b> - the moment an emote starts/stops.
+ *       We do not wait: the event flies out immediately; if the mirrors do not answer, the
+ *       intent is retried every 3 s until it gets through (a newer event displaces the older one).</li>
+ *   <li><b>Refresh (PUT every 10 s while an emote is playing)</b> - keeps the record alive:
+ *       a record on the service has a TTL of 30 s. A crash/lost connection ends the emote
+ *       for everyone within at most ~30 s, and the "switch-off" ARRIVES as a regular stop event.</li>
+ *   <li><b>Receiving (WebSocket /ws of the preferred mirror)</b> - instant push of events
+ *       for "nearby only" ({@code mc.level.players()} = tracked players = the visibility zone).
+ *       The socket is subscribed with a list of UUIDs ({@code watch}); when the list changes
+ *       (someone enters/leaves the zone) it is re-sent, and the server immediately replies
+ *       with a snapshot of the current emotes - nobody slips past a frame. Since 1.7.2 the
+ *       same socket also delivers morphs: the "morph" event and the morph half of the
+ *       snapshot ("morphs") - a morph change is visible instantly, HTTP polling is the fallback.</li>
  * </ol>
  * <p>
- * Гарантии показа/прекращения: пуш → запасной HTTP-опрос раз в 2 с, пока WS закрыт →
- * снимок при каждом обновлении watch-листа → TTL сервиса (30 с) + локальная страховка
- * {@link RemoteEmotes#STALE_MS}. Порядок событий защищён отметкой отправителя (ts),
- * поэтому отставшее зеркало не перебивает свежий стоп.
+ * Show/stop guarantees: push -> fallback HTTP polling every 2 s while the WS is closed ->
+ * a snapshot on every watch-list update -> the service TTL (30 s) + the local safety net
+ * {@link RemoteEmotes#STALE_MS}. Event order is protected by the sender's timestamp (ts),
+ * so a lagging mirror cannot override a fresh stop.
  * <p>
- * Всё работает только при активной синхронизации ({@code syncActive()}): отдельный
- * выключатель не заведён — эмоуты едут вместе с образами (решение владельца мода).
+ * Everything works only while sync is active ({@code syncActive()}): there is no separate
+ * toggle - emotes ride along with morphs (a decision by the mod owner).
  */
 @Environment(EnvType.CLIENT)
 public final class EmoteSync {
     private static final Gson GSON = new Gson();
-    /** Refresh активного эмоута: втрое чаще TTL сервиса (30 с) — запас в 3 пропуска. */
+    /** Refresh of the active emote: 3x more often than the service TTL (30 s) - a margin of 3 misses. */
     private static final long REFRESH_MS = 10_000L;
-    /** Повтор недоставленной публикации (старт/стоп), пока зеркала не ответят 2xx. */
+    /** Retry of an undelivered publish (start/stop) until the mirrors answer 2xx. */
     private static final long RETRY_MS = 3_000L;
-    /** Запасной HTTP-опрос эмоутов, пока WebSocket закрыт. */
+    /** Fallback HTTP polling of emotes while the WebSocket is closed. */
     private static final long POLL_MS = 2_000L;
-    /** Зеркало старой версии (404 на /v1/anims или /ws) — опрос реже, чтобы не молотить. */
+    /** Old-version mirror (404 on /v1/anims or /ws) - poll less often to avoid hammering it. */
     private static final long POLL_TOO_OLD_MS = 30_000L;
-    /** Backoff переподключения WebSocket: 1, 2, 4, 8, 16, 30 (cap) секунд. */
+    /** WebSocket reconnect backoff: 1, 2, 4, 8, 16, 30 (cap) seconds. */
     private static final long WS_BACKOFF_BASE_MS = 1_000L;
     private static final long WS_BACKOFF_MAX_MS = 30_000L;
-    /** Старое зеркало: WS-рукопожатие отвечало 404/400 — пробуем реже. */
+    /** Old mirror: the WS handshake answered 404/400 - try less often. */
     private static final long WS_OLD_SERVER_MS = 60_000L;
-    /** Максимум «ближних» игроков в watch-листе (лимит сервера — 100). */
+    /** Maximum "nearby" players in the watch list (the server limit is 100). */
     private static final int WATCH_MAX = 100;
 
-    // ============================================================ публикация себя
-    /** Наш текущий эмоут (для refresh); null — эмоута нет. */
+    // ============================================================ publishing self
+    /** Our current emote (for refresh); null - no emote. */
     private static volatile String liveAnim = null;
     private static volatile long nextRefreshMs = 0L;
-    /** Старт/стоп, который ещё не подтверждён всеми зеркалами. */
+    /** A start/stop not yet acknowledged by every mirror. */
     private static volatile Intent pendingIntent = null;
     private static volatile long nextPublishMs = 0L;
 
     private static final class Intent {
-        final String anim;   // "" = стоп
-        final long ts;       // наши часы: сервер эхом вернёт в событиях — общий порядок
+        final String anim;   // "" = stop
+        final long ts;       // our clock: the server echoes it back in events - total ordering
         final boolean start;
 
         Intent(String anim, boolean start, long ts) {
@@ -91,43 +91,43 @@ public final class EmoteSync {
         }
     }
 
-    // ============================================================ WebSocket-приём
+    // ============================================================ WebSocket receive
     private static volatile WebSocket ws = null;
     private static volatile boolean wsOpen = false;
-    /** 1.7.7: пакетный доступ для SyncClient — полный HTTP-опрос морфов нужен только
-     *  пока сокета нет (при живом WS изменения приходят пушем). Поле волатильно, гонка
-     *  безвредна: лишний или пропущенный один опрос ничего не ломает. */
+    /** 1.7.7: batch access for SyncClient - the full HTTP poll of morphs is only needed
+     *  while there is no socket (with a live WS, changes arrive via push). The field is
+     *  volatile; the race is harmless: one extra or missed poll breaks nothing. */
     static boolean wsOpen() { return wsOpen; }
-    /** 1.7.1: рукопожатие в полёте — tick() не должен запускать параллельные коннекты
-     *  (раньше каждый тик в окне до 5 с рождал ещё один сокет: живые «сироты» копились
-     *  на сервисе и надували /health поле live — знаменитые live: 20 при двух игроках). */
+    /** 1.7.1: a handshake is in flight - tick() must not start parallel connects
+     *  (previously every tick within a 5 s window spawned another socket: live "orphans"
+     *  piled up on the service and inflated the live field of /health - the famous live: 20 with two players). */
     private static volatile boolean wsConnecting = false;
     private static long wsAttempt = 0;
     private static volatile long nextWsTryMs = 0L;
     private static volatile long lastWsFailLogMs = 0L;
 
     /**
-     * 1.7.5: цепочка отправок. JDK-WebSocket запрещает sendText, пока предыдущая
-     * отправка не завершилась («Send pending»): после рукопожатия hello и watch
-     * уходили подряд, и watch почти всегда влетал в ещё не завершившийся hello.
-     * Теперь каждое сообщение встаёт в очередь и уходит строго после предыдущего;
-     * сбой предыдущей отправки очередь не роняет.
+     * 1.7.5: send chain. The JDK WebSocket forbids sendText while the previous send
+     * has not completed yet ("Send pending"): after the handshake, hello and watch went
+     * out back to back, and watch almost always ran into the still-pending hello.
+     * Now every message is queued and goes out strictly after the previous one;
+     * a failure of the previous send does not kill the queue.
      */
     private static CompletableFuture<Void> sendChain = CompletableFuture.completedFuture(null);
 
-    // ============================================================ запасной опрос
+    // ============================================================ fallback polling
     private static volatile long nextPollMs = 0L;
     private static volatile boolean pollTooOld = false;
 
-    /** Текущий watch-лист (ближние игроки, отсортированы — для стабильного сравнения). */
+    /** Current watch list (nearby players, sorted - for stable comparison). */
     private static volatile List<UUID> lastWatch = List.of();
     private static long lastPruneMs = 0L;
 
     private EmoteSync() {}
 
-    // ============================================================ публичные хуки
+    // ============================================================ public hooks
 
-    /** Эмоут начат (клавишей J / меню / командой). Вызывается с главного потока. */
+    /** An emote has started (J key / menu / command). Called from the main thread. */
     public static void publishStart(String anim) {
         if (anim == null || anim.isEmpty()) anim = "dance";
         liveAnim = anim;
@@ -135,24 +135,24 @@ public final class EmoteSync {
         enqueueIntent(anim, true);
     }
 
-    /** Эмоут прекращён (движение/урон/вода/переключение). Вызывается с главного потока. */
+    /** An emote has stopped (movement/damage/water/switching). Called from the main thread. */
     public static void publishStop() {
-        if (liveAnim == null) return;   // не играли — слать нечего (и не грузим зеркала)
+        if (liveAnim == null) return;   // nothing was playing - nothing to send (and we do not bother the mirrors)
         liveAnim = null;
         nextRefreshMs = 0L;
         enqueueIntent("", false);
     }
 
-    /** При входе в мир: WS-канал и опрос перезапускаются сразу после спавна. */
+    /** On world join: the WS channel and polling restart right after spawn. */
     public static void onJoin() {
         nextWsTryMs = 0L;
         nextPollMs = 0L;
     }
 
     /**
-     * При выходе из мира. Стоп НЕ публикуем: эмоут визуально продолжается и после смены
-     * мира (так устроен мод), а если игрок не вернётся — запись погасит TTL сервиса
-     * (те самые ~30 с, выбранное поведение). Сетевое состояние сбрасываем.
+     * On leaving the world. We do NOT publish a stop: the emote visually continues after
+     * changing worlds too (that is how the mod works), and if the player never returns, the
+     * service TTL expires the record (the same ~30 s, chosen behavior). Network state is reset.
      */
     public static void onDisconnect() {
         pendingIntent = null;
@@ -162,89 +162,89 @@ public final class EmoteSync {
         RemoteEmotes.clear();
     }
 
-    /** Вызывается каждый клиентский тик (после {@link SyncClient#tick}). */
+    /** Called every client tick (after {@link SyncClient#tick}). */
     public static void tick(Minecraft mc) {
         if (mc.level == null || mc.getConnection() == null) return;
         SyncConfig cfg = SyncConfig.get();
         if (!cfg.syncActive() || cfg.serviceUrls.isEmpty()) {
-            // 1.7.5: выключение синка на сервере гасит канал полностью (симметрично
-            // включению): раньше живой WS доживал до перезахода — входящие события
-            // продолжали приходить, а live в /health не падал. Исходящее и так
-            // заглохло, свои записи гасит TTL сервиса.
-            closeWs();               // идемпотентен
+            // 1.7.5: turning sync off on the server tears the channel down completely (symmetric
+            // with turning it on): previously a live WS survived until rejoin - incoming events
+            // kept arriving and live in /health never dropped. Outgoing traffic had died
+            // on its own; our own records are expired by the service TTL.
+            closeWs();               // idempotent
             pendingIntent = null;
-            lastWatch = List.of();   // после повторного включения watch уйдёт заново
+            lastWatch = List.of();   // after sync is re-enabled, watch will be sent again
             RemoteEmotes.clear();
             return;
         }
         UUID self = mc.player == null ? null : mc.player.getUUID();
-        NetDebug.flushChat(); // 1.7.7-debug3: вылить чат-строки, накопленные до спавна
-        if (self == null) return;   // ещё не заспавнились
+        NetDebug.flushChat(); // 1.7.7-debug3: flush chat lines accumulated before spawn
+        if (self == null) return;   // not spawned yet
         long now = System.currentTimeMillis();
 
-        // 1) refresh активного эмоута («я ещё играю») — держит запись против TTL.
-        //    1.7.7-debug4: причина рядом с каждым PUT — в логе видно, ПОЧЕМУ ушёл запрос.
+        // 1) refresh of the active emote ("I am still playing") - keeps the record alive against the TTL.
+        //    1.7.7-debug4: the reason sits next to every PUT - the log shows WHY the request went out.
         if (liveAnim != null && now >= nextRefreshMs) {
             nextRefreshMs = now + REFRESH_MS;
             NetDebug.http("эмоут \"" + liveAnim + "\": refresh — держим запись живой (TTL 30 с)");
             enqueueIntent(liveAnim, true);
         }
 
-        // 2) повтор недоставленной публикации
+        // 2) retry of an undelivered publish
         Intent intent = pendingIntent;
         if (intent != null && now >= nextPublishMs) fireIntent(intent, self, true);
 
-        // 3) watch-лист ближних игроков: меняется (кто-то вошёл/вышел из зоны) — отсылаем
+        // 3) watch list of nearby players: on change (someone enters/leaves the zone) - send it
         List<UUID> watch = nearbyIds(mc, self);
         if (!watch.equals(lastWatch)) {
             lastWatch = watch;
             sendWatch(watch);
         }
 
-        // 4) WebSocket: переподключение по расписанию
+        // 4) WebSocket: reconnect on schedule
         if (!wsOpen && now >= nextWsTryMs) connectWs(cfg, self);
 
-        // 5) запасной HTTP-опрос, пока WS закрыт (и для зеркал старых версий — так же,
-        //    но реже: они отвечают 404 на /v1/anims)
+        // 5) fallback HTTP polling while the WS is closed (and for old-version mirrors - the same,
+        //    but less often: they answer 404 on /v1/anims)
         if (!wsOpen && now >= nextPollMs) {
             nextPollMs = now + (pollTooOld ? POLL_TOO_OLD_MS : POLL_MS);
             if (!watch.isEmpty()) pollSnapshot(self, watch);
         }
 
-        // 6) гигиена: подчищаем давно необновляемые записи
+        // 6) hygiene: prune records not updated for a long time
         if (now - lastPruneMs > 10_000L) {
             lastPruneMs = now;
             RemoteEmotes.prune(now);
         }
     }
 
-    // ============================================================ публикация (HTTP PUT)
+    // ============================================================ publishing (HTTP PUT)
 
     private static void enqueueIntent(String anim, boolean start) {
         Intent intent = new Intent(anim, start, System.currentTimeMillis());
         pendingIntent = intent;
         nextPublishMs = 0L;
         UUID self = selfUuid();
-        if (self != null) fireIntent(intent, self, false);   // не спавнились — повторит tick()
+        if (self != null) fireIntent(intent, self, false);   // not spawned - tick() will retry
     }
 
     private static void fireIntent(Intent intent, UUID self, boolean retry) {
-        // 1.7.7-debug3: гейт «одна попытка на окно» — следующая попытка назначается
-        // ДО запуска запросов. Раньше nextPublishMs обновлялся только в колбэках, т.е.
-        // через ~100–190 мс после отправки, а tick() успевал за это время вызвать
-        // fireIntent ещё 2–4 раза (20 тиков/с): каждое событие старт/стоп/refresh уходило
-        // зеркалам пачкой дубликатов (в debug2-логе это ровно пачки «по 3–4 PUT /v1/anims
-        // на одно нажатие»), а параллельные PUT держали по HTTP-соединению каждый и
-        // раздували conns в /health (скачки 2→6 у одиночного игрока).
+        // 1.7.7-debug3: the "one attempt per window" gate - the next attempt is scheduled
+        // BEFORE the requests are fired. Previously nextPublishMs was updated only in the
+        // callbacks, i.e. ~100-190 ms after sending, and in that time tick() managed to call
+        // fireIntent 2-4 more times (20 ticks/s): every start/stop/refresh event went to the
+        // mirrors as a batch of duplicates (the debug2 log shows exactly the batches "of 3-4
+        // PUT /v1/anims per keypress"), and each parallel PUT held an HTTP connection of its
+        // own, inflating conns in /health (2->6 jumps for a single player).
         nextPublishMs = System.currentTimeMillis() + RETRY_MS;
         SyncConfig cfg = SyncConfig.get();
         if (!cfg.syncActive() || cfg.serviceUrls.isEmpty()) {
             pendingIntent = null;
             return;
         }
-        // 1.7.7-debug4: у каждого PUT в трассировке стоит причина — старт/стоп/refresh/повтор.
-        // Строка печатается только когда запрос РЕАЛЬНО уходит (после гейта согласия),
-        // поэтому «публикую» не врёт ни при выключенном синке, ни при пустых зеркалах.
+        // 1.7.7-debug4: every PUT in the trace carries a reason - start/stop/refresh/retry.
+        // The line is printed only when the request REALLY goes out (after the consent gate),
+        // so "publishing" does not lie, neither with sync off nor with empty mirrors.
         NetDebug.http("эмоут " + (intent.start ? "старт \"" + intent.anim + "\"" : "стоп")
                 + ": PUT (зеркал: " + cfg.serviceUrls.size() + ")"
                 + (retry ? " — повтор недоставленного" : ""));
@@ -272,13 +272,13 @@ public final class EmoteSync {
                         failed.incrementAndGet();
                     } else if (resp.statusCode() == 401) {
                         failed.incrementAndGet();
-                        AuthClient.onUnauthorized();   // запись защищена — авторизуемся, как с образами
+                        AuthClient.onUnauthorized();   // the record is protected - authorize, same as with morphs
                     } else if (resp.statusCode() / 100 != 2) {
                         failed.incrementAndGet();
                     } else {
                         ok.incrementAndGet();
                     }
-                    // Сравнение с pendingIntent не даёт снять с ретрая более свежее событие.
+                    // Comparing with pendingIntent prevents a newer event from being taken off the retry.
                     if (ok.get() + failed.get() == total) {
                         if (failed.get() > 0) {
                             nextPublishMs = System.currentTimeMillis() + RETRY_MS;
@@ -294,7 +294,7 @@ public final class EmoteSync {
         }
     }
 
-    // ============================================================ приём: WebSocket
+    // ============================================================ receive: WebSocket
 
     private static void connectWs(SyncConfig cfg, UUID self) {
         List<String> mirrors = new ArrayList<>(cfg.serviceUrls);
@@ -307,9 +307,9 @@ public final class EmoteSync {
             nextWsTryMs = System.currentTimeMillis() + WS_BACKOFF_MAX_MS;
             return;
         }
-        // 1.7.1: отметка «соединяемся» ставится ДО запуска рукопожатия, а nextWsTryMs
-        // заранее отодвигается на горизонт таймаута + запас: если колбэк вовсе не придёт,
-        // повтор через 10 с, а не 20 попыток в секунду.
+        // 1.7.1: the "connecting" mark is set BEFORE the handshake starts, and nextWsTryMs
+        // is pushed out in advance to the timeout horizon + margin: if the callback never
+        // arrives at all, the retry comes in 10 s, not 20 attempts per second.
         NetDebug.ws("WS: подключаюсь к " + url + " (попытка " + (wsAttempt + 1) + ")");
         wsConnecting = true;
         nextWsTryMs = System.currentTimeMillis() + 10_000L;
@@ -323,17 +323,17 @@ public final class EmoteSync {
                             onWsFailure(err);
                             return;
                         }
-                        // 1.7.1: прежний активный сокет (если был) закрываем — иначе он
-                        // остаётся жить «сиротой», пока его не прибьёт таймаут сервера.
+                        // 1.7.1: close the previous active socket (if any) - otherwise it
+                        // keeps living as an "orphan" until the server timeout kills it.
                         WebSocket old = ws;
                         ws = socket;
                         wsOpen = true;
                         wsAttempt = 0;
                         if (old != null && old != socket) closeQuietly(old);
                         NetDebug.ws("WS: ОТКРЫТ → " + url);
-                        SyncClient.debugHealth(); // 1.7.7-debug2: сразу счетчик сервера в трассировку
-                        SyncClient.onWsOpened(); // 1.7.7-debug4: не дублировать свежий полный забор
-                        // приветствие + текущий список интересов; дальше сервер пушит сам
+                        SyncClient.debugHealth(); // 1.7.7-debug2: server counters into the trace right away
+                        SyncClient.onWsOpened(); // 1.7.7-debug4: do not duplicate a fresh full fetch
+                        // greeting + the current list of interests; from then on the server pushes on its own
                         sendText(socket, GSON.toJson(Map.of("type", "hello", "uuid", self.toString())));
                         sendWatch(lastWatch);
                     });
@@ -343,7 +343,7 @@ public final class EmoteSync {
         }
     }
 
-    /** 1.7.1: тихо закрыть заменённый/осиротевший сокет (ошибки игнорируем — уже мёртв). */
+    /** 1.7.1: quietly close a replaced/orphaned socket (errors ignored - it is already dead). */
     private static void closeQuietly(WebSocket socket) {
         try {
             socket.sendClose(WebSocket.NORMAL_CLOSURE, "replaced");
@@ -352,8 +352,8 @@ public final class EmoteSync {
     }
 
     /**
-     * Свежий слушатель на КАЖДОЕ соединение: буфер сборки фрагментированных сообщений —
-     * локальное состояние, и при перекрытии старого/нового сокета они не должны делить его.
+     * A fresh listener for EVERY connection: the buffer for assembling fragmented messages is
+     * local state, and when the old and the new socket overlap they must not share it.
      */
     private static WebSocket.Listener newListener() {
         return new WebSocket.Listener() {
@@ -381,8 +381,8 @@ public final class EmoteSync {
                 NetDebug.ws("WS: закрыт " + (socket == ws ? "активный" : "[осиротевший]")
                         + ": code=" + statusCode
                         + (reason == null || reason.isEmpty() ? "" : ", reason=" + reason));
-                // 1.7.1: сигнал «канал упал, переподключайся» даёт ТОЛЬКО активный сокет.
-                // Смерть осиротевшего соединения — обычное дело и не должна будить канал.
+                // 1.7.1: only the ACTIVE socket emits the "channel down, reconnect" signal.
+                // An orphaned connection dying is routine and must not wake the channel.
                 if (socket == ws) {
                     onWsFailure(new IllegalStateException("ws closed: " + statusCode));
                 } else {
@@ -408,13 +408,13 @@ public final class EmoteSync {
         if (mirror == null || mirror.isEmpty()) return null;
         if (mirror.startsWith("https://")) return "wss://" + mirror.substring("https://".length()) + "/ws";
         if (mirror.startsWith("http://")) return "ws://" + mirror.substring("http://".length()) + "/ws";
-        return null;   // странный адрес в конфиге — WS-канал к нему не строим
+        return null;   // odd address in the config - we do not build a WS channel to it
     }
 
     private static void onWsFailure(Throwable t) {
         wsOpen = false;
         long now = System.currentTimeMillis();
-        // Старое зеркало (без /ws): 404/400 на рукопожатии — пробуем реже, polling прикрывает.
+        // Old mirror (no /ws): 404/400 on the handshake - try less often, polling covers it.
         boolean oldServer = false;
         Throwable c = t;
         while (c != null) {
@@ -441,16 +441,16 @@ public final class EmoteSync {
             LucarioMod.LOGGER.info("[Lucario Emotes] WS-канал недоступен ({}), работает запасной опрос: {}",
                     oldServer ? "зеркало старой версии" : "ошибка", t.toString());
         }
-        SyncClient.debugHealth(); // 1.7.7-debug2: после потери WS — что видит сервер (conns должен упасть)
+        SyncClient.debugHealth(); // 1.7.7-debug2: after losing the WS - what the server sees (conns should drop)
     }
 
     private static void sendText(WebSocket socket, String text) {
         synchronized (EmoteSync.class) {
             sendChain = sendChain
-                    .handle((unused, prevErr) -> (WebSocket) null)   // сбой предыдущей не роняет очередь
-                    .thenCompose(v -> socket.sendText(text, true))   // уходит строго после предыдущей
+                    .handle((unused, prevErr) -> (WebSocket) null)   // a previous failure does not kill the queue
+                    .thenCompose(v -> socket.sendText(text, true))   // goes out strictly after the previous one
                     .whenComplete((r, err) -> {
-                        // сбой отправки = канал мёртв: гасим и переподключаемся по бэкоффу
+                        // a send failure = the channel is dead: tear it down and reconnect with backoff
                         if (err != null && socket == ws && wsOpen) onWsFailure(err);
                     })
                     .thenApply(w -> (Void) null);
@@ -468,8 +468,8 @@ public final class EmoteSync {
         sendText(socket, GSON.toJson(obj));
     }
 
-    /** Сообщения сервера: пуш события «anim», пуш события «morph» (1.7.2) и снимок «state»
-     *  после watch — теперь он несёт и эмоуты (поле anims), и морфы (поле morphs, 1.7.2). */
+    /** Server messages: a push of the "anim" event, a push of the "morph" event (1.7.2) and the "state"
+     *  snapshot after watch - it now carries both emotes (the anims field) and morphs (the morphs field, 1.7.2). */
     private static void onWsMessage(String msg) {
         try {
             JsonObject obj = GSON.fromJson(msg, JsonObject.class);
@@ -486,8 +486,8 @@ public final class EmoteSync {
                     Minecraft.getInstance().execute(() -> RemoteEmotes.apply(id, anim, active, ts));
                 }
             } else if (type.equals("morph")) {
-                // 1.7.2: чужой морф сменился на сервисе — применяем мгновенно (адресный пуш:
-                // событие приходит только сокетам, смотрящим этого игрока).
+                // 1.7.2: someone else's morph changed on the service - apply it instantly (targeted push:
+                // the event arrives only to the sockets watching this player).
                 UUID id = uuid(obj.get("uuid"));
                 String variant = obj.has("variant") && !obj.get("variant").isJsonNull()
                         ? obj.get("variant").getAsString() : "";
@@ -503,14 +503,14 @@ public final class EmoteSync {
                 }
             }
         } catch (Exception ignored) {
-            // битое сообщение не должно ронять канал
+            // a malformed message must not kill the channel
         }
     }
 
     /**
-     * 1.7.2: морфная половина снапшота «state» (поле morphs). Покрывает watch-лист:
-     * кого нет в снапшоте — у того записи на сервисе нет (снимаем кэш). Морфы игроков
-     * ВНЕ watch-листа не трогаем — за них отвечает обычный HTTP-опрос.
+     * 1.7.2: the morph half of the "state" snapshot (the morphs field). It covers the watch list:
+     * whoever is missing from the snapshot has no record on the service (clear the cache). Morphs
+     * of players OUTSIDE the watch list are not touched - regular HTTP polling handles them.
      */
     private static void applyMorphSnapshot(JsonObject morphs) {
         for (Map.Entry<String, JsonElement> e : morphs.entrySet()) {
@@ -525,7 +525,7 @@ public final class EmoteSync {
         }
     }
 
-    // ============================================================ приём: запасной HTTP-опрос
+    // ============================================================ receive: fallback HTTP polling
 
     private static void pollSnapshot(UUID self, List<UUID> watch) {
         StringBuilder q = new StringBuilder("/v1/anims?uuids=");
@@ -534,20 +534,20 @@ public final class EmoteSync {
             q.append(watch.get(i));
         }
         SyncClient.fetch(q.toString()).whenComplete((obj, err) -> {
-            if (err != null || obj == null) return;   // ни одно зеркало не ответило — повторит tick()
+            if (err != null || obj == null) return;   // no mirror answered - tick() will retry
             JsonObject anims = obj.has("anims") && obj.get("anims").isJsonObject()
                     ? obj.getAsJsonObject("anims") : new JsonObject();
-            pollTooOld = false;   // зеркала понимают /v1/anims
+            pollTooOld = false;   // the mirrors understand /v1/anims
             Minecraft.getInstance().execute(() -> applySnapshot(anims));
         });
     }
 
-    /** Снимок (WS «state» или HTTP-опрос): применяем записи, отсутствующие мёртвые чистим. */
+    /** A snapshot (WS "state" or HTTP polling): apply the records, prune the absent dead ones. */
     private static void applySnapshot(JsonObject anims) {
         UUID self = selfUuid();
         List<UUID> present = new ArrayList<>();
         for (Map.Entry<String, JsonElement> e : anims.entrySet()) {
-            // ключ записи — сам uuid
+            // the record key is the uuid itself
             UUID id = uuidString(e.getKey());
             if (id == null || id.equals(self)) continue;
             if (!e.getValue().isJsonObject()) continue;
@@ -563,12 +563,12 @@ public final class EmoteSync {
         RemoteEmotes.dropAbsentInactive(present);
     }
 
-    // ============================================================ watch-лист
+    // ============================================================ watch list
 
     /**
-     * «Рядом» = отслеживаемые клиентом игроки ({@code mc.level.players()}): это ровно те,
-     * кого игра уже держит в зоне видимости. Список сортируется по UUID — сравнение
-     * списков (и потому частота отправки watch) не зависит от порядка отрисовки.
+     * "Nearby" = the players tracked by the client ({@code mc.level.players()}): exactly those
+     * the game already keeps in its visibility zone. The list is sorted by UUID - list
+     * comparison (and therefore the watch send rate) does not depend on the render order.
      */
     private static List<UUID> nearbyIds(Minecraft mc, UUID self) {
         Iterable<AbstractClientPlayer> players = mc.level.players();
@@ -592,19 +592,19 @@ public final class EmoteSync {
         return List.copyOf(ids);
     }
 
-    // ============================================================ служебное
+    // ============================================================ utilities
 
     private static void closeWs() {
         WebSocket socket = ws;
         ws = null;
         wsOpen = false;
-        wsConnecting = false;   // 1.7.1: сброс, чтобы свежий вход в мир мог коннектиться сразу
+        wsConnecting = false;   // 1.7.1: reset so a fresh world join can connect right away
         if (socket != null) {
             NetDebug.ws("WS: закрываю локально (выход из мира / синк выключен)");
             try {
                 socket.sendClose(WebSocket.NORMAL_CLOSURE, "bye");
             } catch (Exception ignored) {
-                socket.abort();   // 1.7.5: pending-отправка мешает close-фрейму — рвём TCP
+                socket.abort();   // 1.7.5: a pending send blocks the close frame - tear down TCP
             }
         }
     }

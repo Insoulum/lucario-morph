@@ -8,8 +8,8 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Минимальный интерпретатор Molang: арифметика, скобки, math.sin/cos/abs/clamp/min/max/pow/sqrt/...
- * и переменная query.anim_time (q.anim_time). Этого хватает для анимаций Лукарио.
+ * A minimal Molang interpreter: arithmetic, parentheses, math.sin/cos/abs/clamp/min/max/pow/sqrt/...
+ * and the query.anim_time (q.anim_time) variable. That is enough for Lucario's animations.
  */
 public final class Molang {
     public interface Expr {

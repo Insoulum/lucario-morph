@@ -33,13 +33,13 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Mixin(AvatarRenderer.class)
 public abstract class AvatarRendererMixin {
 
-    /** Копируем в состояние рендера, в кого превращён этот игрок, и как он сейчас машет рукой. */
+    /** Copy into the render state which morph this player is in and how it is currently swinging its arm. */
     @Inject(method = "extractRenderState(Lnet/minecraft/world/entity/Avatar;Lnet/minecraft/client/renderer/entity/state/AvatarRenderState;F)V",
             at = @At("TAIL"))
     private void lucario$copyState(Avatar entity, AvatarRenderState state,
                                    float tickProgress, CallbackInfo ci) {
         LucarioStateAccess access = (LucarioStateAccess) (Object) state;
-        // Состояния переиспользуются между сущностями и кадрами — сбрасываем личную модель и бленды поз.
+        // Render states are reused across entities and frames - reset the personal model and the pose blends.
         access.lucario$setModel(null);
         access.lucario$setBattleBlend(0.0F);
         access.lucario$setDanceBlend(0.0F);
@@ -50,11 +50,11 @@ public abstract class AvatarRendererMixin {
         access.lucario$setVariant(variant);
         if (variant == null) return;
 
-        // 1.4.3: личный экземпляр модели на игрока. Раньше кэш был общий на вариант, и два игрока
-        // с одинаковым образом (в т.ч. обычный и shiny) получали одни и те же кости — позы "сливались".
+        // 1.4.3: a per-player model instance. The cache used to be shared per variant, so two players
+        // with the same morph (including normal and shiny) got the same bones - poses "merged".
         LucarioModel model = LucarioModels.get(entity.getUUID(), Variants.baseOf(variant));
         if (model == null) {
-            // Модель не загрузилась — откатываемся на ванильный скин вместо невидимости.
+            // Model failed to load - fall back to the vanilla skin instead of invisibility.
             access.lucario$setVariant(null);
             return;
         }
@@ -62,7 +62,7 @@ public abstract class AvatarRendererMixin {
 
         access.lucario$setSprinting(entity.isSprinting());
 
-        // Взмах рукой: удар, ломание блока, установка блока, использование предмета.
+        // Arm swing: attacking, breaking a block, placing a block, using an item.
         // 1.6.4: the plain arm swing rides EVERY vanilla swing again — left
         // clicks AND right-click item use (doors, food, placing), like before
         // 1.6.2. Only the STRIKE overlay (body twist, chest lean, fist, off-arm
@@ -79,10 +79,10 @@ public abstract class AvatarRendererMixin {
         if (entity.getUsedItemHand() == InteractionHand.OFF_HAND) swingArm = swingArm.getOpposite();
         access.lucario$setSwingRight(swingArm == HumanoidArm.RIGHT);
 
-        // Полёт на элитрах и наличие элитр на игроке
+        // Elytra flight and whether the player has an elytra on
         access.lucario$setGliding(entity.isFallFlying());
         access.lucario$setHasElytra(entity.getItemBySlot(EquipmentSlot.CHEST).is(Items.ELYTRA));
-        // Скин элитр: как в ваниле — специальная текстура элитр, иначе плащ игрока, иначе стандартные элитры
+        // Elytra skin: like vanilla - the dedicated elytra texture, else the player's cape, else the default elytra
         if (entity instanceof AbstractClientPlayer player) {
             var skin = player.getSkin();
             Identifier wingTexture = skin.elytra() != null ? skin.elytra().texturePath() : null;
@@ -90,7 +90,7 @@ public abstract class AvatarRendererMixin {
             access.lucario$setElytraTexture(wingTexture);
         }
 
-        // Едет верхом (лодка, вагонетка, свинья и т.п.) — для позы сидения
+        // Is riding (boat, minecart, pig, etc.) - for the sitting pose
         access.lucario$setRiding(entity.isPassenger());
 
         // Patch 11: battle stance lingers ~2s after the entity attacked or was hurt.
@@ -106,10 +106,10 @@ public abstract class AvatarRendererMixin {
                 && !entity.isInWater()
                 && !entity.isPassenger()
                 && !entity.isDeadOrDying();
-        // 1.7.0: эмоут — пер-игроковый. Свой — из DanceState/PreviewState (как раньше);
-        // чужие — из RemoteEmotes (события приходят через сервис синхронизации, часы
-        // стартуют в момент получения события). Ванильные проверки (урон/вода/полёт/
-        // ездок/смерть) синхронизируются самим Minecraft — работают и для чужих игроков.
+        // 1.7.0: the emote is per-player. Own emote - from DanceState/PreviewState (as before);
+        // other players' - from RemoteEmotes (events arrive via the sync service, the clock
+        // starts when the event is received). Vanilla checks (damage/water/flight/
+        // riding/death) are synchronized by Minecraft itself - they work for remote players too.
         String emoteAnim = null;
         double emoteTime = 0.0;
         if (local) {
@@ -134,14 +134,14 @@ public abstract class AvatarRendererMixin {
         access.lucario$setBattleBlend(MotionBlend.battle(entity.getUUID(), combat));
         access.lucario$setDanceBlend(MotionBlend.dance(entity.getUUID(), dancing));
         access.lucario$setGlideBlend(MotionBlend.glide(entity.getUUID(), entity.isFallFlying() && !entity.isDeadOrDying()));
-        // 1.7.0: имя и часы эмоута едут в состояние рендера — LucarioRenderer читает
-        // пер-игроковые значения вместо глобальных PreviewState/DanceState.
+        // 1.7.0: the emote name and clock travel inside the render state - LucarioRenderer reads
+        // the per-player values instead of the global PreviewState/DanceState.
         access.lucario$setEmoteAnim(dancing ? emoteAnim : null);
         access.lucario$setEmoteTime(emoteTime);
 
-        // Ванильные слои рассчитаны на скелет Стива — для образа отключаем:
-        // убираем броню/плащ/стрелы/шляпу из состояния (рендерятся они уже после extractRenderState),
-        // а также очищаем уже извлечённое состояние предмета на голове (иначе шляпа "висит в воздухе").
+        // Vanilla layers are designed for the Steve skeleton - disable them for the morph:
+        // strip armor/cape/arrows/hat from the state (they are rendered after extractRenderState anyway),
+        // and also clear the already extracted head item state (otherwise the hat "floats in mid-air").
         state.showCape = false;
         state.arrowCount = 0;
         state.stingerCount = 0;
@@ -153,8 +153,8 @@ public abstract class AvatarRendererMixin {
     }
 
     /**
-     * Вид от первого лица: вместо руки Стива рисуем руку Лукарио/Риолу.
-     * Позицию, качание и взмах уже задал ванильный рендер — мы только меняем саму модель руки.
+     * First-person view: draw a Lucario/Riolu arm instead of the Steve arm.
+     * Position, bob and swing are already set up by the vanilla renderer - we only swap the arm model itself.
      */
     @Inject(method = "renderRightHand(Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/SubmitNodeCollector;ILnet/minecraft/resources/Identifier;Z)V",
             at = @At("HEAD"), cancellable = true)

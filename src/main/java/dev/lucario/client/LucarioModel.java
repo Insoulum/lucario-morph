@@ -36,62 +36,62 @@ import java.util.Set;
 import java.util.function.Function;
 
 /**
- * Модель Лукарио, собранная из Bedrock .geo.json в дерево ModelPart.
+ * Lucario model assembled from a Bedrock .geo.json into a ModelPart tree.
  *
- * Преобразование координат Bedrock -> Java-модель:
- *   x, z без изменений; y_java = 24 - y_bedrock (ось Y у Java-моделей направлена вниз);
- *   углы поворота из файла Bedrock используются как есть (в Bedrock они уже записаны в "Java-совместимом" знаке).
- * Если какая-то конечность вывернута в другую сторону — см. комментарий в README про ROT_SIGN_*.
+ * Bedrock -> Java model coordinate conversion:
+ *   x, z unchanged; y_java = 24 - y_bedrock (the Y axis of Java models points down);
+ *   rotation angles from the Bedrock file are used as-is (Bedrock already stores them in the "Java-compatible" sign).
+ * If some limb bends the wrong way -- see the README note about ROT_SIGN_*.
  */
 @Environment(EnvType.CLIENT)
 public final class LucarioModel {
-    /** Высота игрока в блоках, под которую масштабируется Лукарио (ушки включены). */
+    /** Player height in blocks that Lucario is scaled to (ears included). */
     public static final float TARGET_HEIGHT_BLOCKS = 1.8f;
-    /** Высота базовой модели в единицах Bedrock (от подошвы до кончиков ушей). */
+    /** Base model height in Bedrock units (from the soles to the ear tips). */
     private static final float BASE_MODEL_HEIGHT_UNITS = 49.1f;
-    /** Масштаб одинаковый для всех костюмов, чтобы шляпы не уменьшали Лукарио. */
+    /** The same scale for all costumes so hats don't shrink Lucario. */
     public static final float RENDER_SCALE = TARGET_HEIGHT_BLOCKS * 16.0f / BASE_MODEL_HEIGHT_UNITS;
 
-    // Знаки поворота (если конечности "выворачиваются" — поменяйте на -1 нужной оси).
+    // Rotation signs (if limbs "bend the wrong way", set the offending axis to -1).
     public static final float ROT_SIGN_X = 1f, ROT_SIGN_Y = 1f, ROT_SIGN_Z = 1f;
 
-    // Приседание: на сколько градусов сгибаются бёдра и наклоняется корпус, и поправка "ступни на земле" (ед. Bedrock).
+    // Sneaking: how many degrees the hips bend and the torso leans, plus the "feet on the ground" fix (Bedrock units).
     private static final double CROUCH_HIP_DEG = 40.0;
     private static final double CROUCH_TORSO_LEAN_DEG = 25.0;
     private static final double CROUCH_GROUND_FIX = 1.4;
-    /** На сколько (ед. Bedrock) раздувается плоская ось куба нулевой толщины. */
+    /** How much (Bedrock units) the flat axis of a zero-thickness cube is inflated. */
     private static final double FLAT_CUBE_PUFF = 0.03;
-    // Поза сидения: бёдра чуть приподняты, колени слегка разведены — ноги получаются прямыми, а не согнутыми.
+    // Sitting pose: hips lifted slightly, knees spread a bit -- the legs come out straight, not bent.
     private static final double SIT_HIP_LIFT_DEG = 4.0;
     private static final double SIT_KNEE_OPEN_DEG = 16.0;
 
     public final ModelPart root;
-    /** Все кости по имени (включая корневые). Свои у каждой выпеченной модели — см. LucarioModels. */
+    /** All bones by name (including roots). Each baked model has its own -- see LucarioModels. */
     public final Map<String, ModelPart> parts = new LinkedHashMap<>();
-    /** x, y, z, xRot, yRot, zRot — исходная поза кости. */
+    /** x, y, z, xRot, yRot, zRot -- the bone's original pose. */
     public final Map<String, float[]> base = new HashMap<>();
-    /** Анимации шарятся между выпечками: BedrockAnimation после разбора неизменяемый. */
+    /** Animations are shared between bakes: BedrockAnimation is immutable once parsed. */
     public final Map<String, BedrockAnimation> animations;
-    /** Родитель каждой кости (для корневых костей записи нет). */
+    /** Parent of each bone (root bones have no entry). */
     public final Map<String, String> parentOf;
-    /** Добавочный наклон (pitch, радианы) костей при приседании: бёдра, колени, ступни, корпус. */
+    /** Extra pitch (radians) added to the bones while sneaking: hips, knees, feet, torso. */
     public final Map<String, Float> crouchPitch;
-    /** Добавочный наклон (pitch, радианы) бёдер и коленей в позе сидения (в транспорте). */
+    /** Extra pitch (radians) of the hips and knees in the sitting pose (in a vehicle). */
     public final Map<String, Float> sitPitch;
-    /** На сколько единиц Bedrock опускается тело при приседании, чтобы ступни остались на земле. */
+    /** How many Bedrock units the body drops when sneaking so the feet stay on the ground. */
     public final float crouchDrop;
     public final Identifier texture;
     public final Identifier shinyTexture;
-    /** Смещение, поднимающее подошвы на землю (в единицах Bedrock, y вверх). */
+    /** Offset that raises the soles to ground level (in Bedrock units, y up). */
     public final float feetY;
-    /** Крылья элитр — своя пара костей у каждой модели (раньше были общими — та же ошибка "общей позы"). */
+    /** Elytra wings -- their own pair of bones per model (they used to be shared -- the same "shared pose" bug). */
     public final ModelPart elytraLeft;
     public final ModelPart elytraRight;
-    /** Обёртка крыльев элитр в Model для сабмита (кости — личные, setupAnim пустой: поза ставится перед сабмитом). */
+    /** Wraps the elytra wing bones in a Model for submission (setupAnim is empty: the pose is set before the submit). */
     public final Model<LivingEntityRenderState> elytraModel;
-    /** Обёртка корня в Model для нового submit-пайплайна рендера (26.x).
-     *  setupAnim вызывается пайплайном при отрисовке сабмита — здесь поза переприменяется
-     *  из состояния этого конкретного игрока, поэтому одинаковые образы не "копируют" друг друга. */
+    /** Wrapper of the root in a Model for the new render submit pipeline (26.x).
+     *  setupAnim is called by the pipeline when drawing the submit -- here the pose is re-applied
+     *  from that specific player's state, so identical morphs don't "copy" each other. */
     public final Model<LivingEntityRenderState> entityModel;
 
     private LucarioModel(ModelPart root, Definition d) {
@@ -126,7 +126,7 @@ public final class LucarioModel {
         return animations.get(shortName);
     }
 
-    /** Цепочка костей от корня до bone включительно (нужна, чтобы найти положение кисти для предмета). */
+    /** Chain of bones from the root to and including bone (needed to find the hand position for an item). */
     public List<String> chainTo(String bone) {
         List<String> chain = new ArrayList<>();
         String cur = bone;
@@ -139,7 +139,7 @@ public final class LucarioModel {
         return chain;
     }
 
-    /** Кости выражений лица и служебные кости, которые анимации показывают только в нужный момент. */
+    /** Face-expression bones and utility bones that the animations only show at the right moment. */
     public static boolean hiddenByDefault(String n) {
         return n.contains("anger") || n.contains("squint") || n.contains("emote")
                 || n.contains("happy") || n.contains("calm") || n.contains("wide")
@@ -148,12 +148,12 @@ public final class LucarioModel {
                 || n.contains("Pivot");
     }
 
-    // ------------------------------------------------------------------ загрузка
+    // ------------------------------------------------------------------ loading
 
     /**
-     * Всё, что дорого разбирать из JSON и что не зависит от игрока: слой геометрии,
-     * анимации, кости-родители, поправки приседа/сидения. Кэшируется на базовый вариант
-     * и шарится; из него выпекается личное дерево ModelPart на каждого игрока (см. bake).
+     * Everything expensive to parse from JSON and independent of the player: the geometry layer,
+     * animations, bone parents, sneaking/sitting adjustments. Cached per base variant and shared;
+     * a personal ModelPart tree is baked from it for every player (see bake).
      */
     public static final class Definition {
         final LayerDefinition layer;
@@ -177,7 +177,7 @@ public final class LucarioModel {
         }
     }
 
-    /** Разбор Bedrock-геометрии и анимаций варианта (тяжёлая часть, делается один раз). */
+    /** Parses the variant's Bedrock geometry and animations (the heavy part, done once). */
     public static Definition loadDefinition(ResourceManager rm, String variant) throws IOException {
         JsonObject geoRoot = readJson(rm, Identifier.fromNamespaceAndPath(LucarioMod.MOD_ID, "models/" + variant + ".geo.json"));
         JsonObject geo = geoRoot.getAsJsonArray("minecraft:geometry").get(0).getAsJsonObject();
@@ -193,7 +193,7 @@ public final class LucarioModel {
 
         MeshDefinition data = new MeshDefinition();
         Map<String, PartDefinition> built = new HashMap<>();
-        // Габариты (после нормализации и inflate) всех обычных кубов — для поиска кубов-близнецов
+        // Dimensions (after normalization and inflate) of all regular cubes -- for finding twin cubes
         Set<String> positiveBoxes = new HashSet<>();
         for (JsonObject b : defs.values()) {
             if (!b.has("cubes")) continue;
@@ -206,7 +206,7 @@ public final class LucarioModel {
 
         LayerDefinition layer = LayerDefinition.create(data, texW, texH);
 
-        // подошвы: самый низ кубов в костях foot*
+        // soles: the lowest point of the cubes in the foot* bones
         double minFoot = Double.POSITIVE_INFINITY, minAny = Double.POSITIVE_INFINITY;
         for (JsonObject b : defs.values()) {
             String n = b.get("name").getAsString();
@@ -224,7 +224,7 @@ public final class LucarioModel {
                 Identifier.fromNamespaceAndPath(LucarioMod.MOD_ID, "textures/entity/" + variant + ".png"),
                 Identifier.fromNamespaceAndPath(LucarioMod.MOD_ID, "textures/entity/" + variant + "_shiny.png"));
 
-        // Родители из geo (нужны и для поиска костей, и для цепочек)
+        // Parents from the geo (needed both for bone lookup and for chains)
         for (Map.Entry<String, JsonObject> e : defs.entrySet()) {
             JsonObject b = e.getValue();
             if (b.has("parent") && defs.containsKey(b.get("parent").getAsString())) {
@@ -234,12 +234,12 @@ public final class LucarioModel {
 
         computeCrouch(d, defs, feet);
         computeSit(d, defs);
-        // анимации (1.7.6): файл варианта опционален. Есть свой файл — вариант играет
-        // только его (мега так и живёт: её файл не тронут); нет своего — играет стандарт
-        // вида (lucario/riolu). Все обычные варианты Лукарио и оба доп. Риолу делят
-        // один стандартный набор — минус 13 файлов из jar, а у cafe/holiday «сами»
-        // появились specialist и танец, которых в их старых файлах не было. Свой файл
-        // остаётся точкой кастомизации: положили — вариант играет его целиком.
+        // animations (1.7.6): the variant's own file is optional. With one, the variant plays
+        // only it (that's how mega lives: its file is untouched); without one, it plays the species
+        // default (lucario/riolu). All regular Lucario variants and both extra Riolu variants share
+        // one default set -- minus 13 files from the jar, and cafe/holiday "on their own" got
+        // specialist and the dance, which their old files didn't have. The own file remains
+        // a customization point: drop one in -- the variant plays it in full.
         Identifier ownAnim = Identifier.fromNamespaceAndPath(LucarioMod.MOD_ID, "animations/" + variant + ".animation.json");
         Identifier animId = ownAnim;
         if (rm.getResource(ownAnim).isEmpty()) {
@@ -257,12 +257,12 @@ public final class LucarioModel {
         return d;
     }
 
-    /** Выпечка личного экземпляра модели из определения: свежее дерево ModelPart на игрока. */
+    /** Bakes a personal model instance from the definition: a fresh ModelPart tree per player. */
     public static LucarioModel bake(Definition d) {
         ModelPart root = d.layer.bakeRoot();
         LucarioModel m = new LucarioModel(root, d);
 
-        // Поиск костей по имени: спускаемся от корня по цепочке родителей
+        // Bone lookup by name: descend from the root along the parent chain
         Function<String, ModelPart> getter = name -> {
             List<String> path = new ArrayList<>();
             String cur = name;
@@ -289,16 +289,16 @@ public final class LucarioModel {
         return m;
     }
 
-    /** Геометрия ванильных крыльев элитр (общий слой, но кости выпекаются на каждую модель). */
+    /** Vanilla elytra wing geometry (a shared layer, but the bones are baked per model). */
     private static LayerDefinition elytraLayer() {
         MeshDefinition data = new MeshDefinition();
         PartDefinition root = data.getRoot();
         CubeDeformation d = new CubeDeformation(1.0F);
-        // Кубы направлены ВНУТРЬ от осей (как в ваниле): сложенные крылья сходятся у позвоночника,
-        // а в полёте разворачиваются наружу. Раньше кубы шли наружу — половины висели по сторонам с зазором.
-        // Зеркалирование (mirror) у половин перепутано: наша модель рисуется в перевёрнутом по X фрейме
-        // (scale(-1,-1,1)), из-за чего текстурные половинки элитры оказываются на противоположных крыльях.
-        // У ванилы зеркалится левое крыло — здесь, с учётом нашего фрейма, зеркалим правое.
+        // The cubes face INWARD from the axes (as in vanilla): folded wings meet at the spine,
+        // and in flight they unfold outward. The cubes used to face outward -- the halves hung at the sides with a gap.
+        // The mirroring (mirror) of the halves is swapped: our model is drawn in an X-flipped frame
+        // (scale(-1,-1,1)), so the texture halves of the elytra end up on opposite wings.
+        // Vanilla mirrors the left wing -- here, given our frame, we mirror the right one.
         root.addOrReplaceChild("left_wing", CubeListBuilder.create().texOffs(22, 0)
                 .addBox(-10.0F, 0.0F, 0.0F, 10.0F, 20.0F, 2.0F, d), PartPose.ZERO);
         root.addOrReplaceChild("right_wing", CubeListBuilder.create().texOffs(22, 0).mirror(true)
@@ -307,8 +307,8 @@ public final class LucarioModel {
     }
 
     /**
-     * Приседание по длинам ног самой модели: бедро вперёд на alpha, колено (leg*3) назад на beta, ступня выравнивается;
-     * тело опускается на crouchDrop, корпус наклоняется вперёд. Подходит и Лукарио, и Риолу (у них одни имена костей).
+     * Sneaking from the model's own leg lengths: hip pitches forward by alpha, knee (leg*3) back by beta, foot levels out;
+     * the body drops by crouchDrop and the torso leans forward. Works for both Lucario and Riolu (they share bone names).
      */
     private static void computeCrouch(Definition d, Map<String, JsonObject> defs, double feetY) {
         if (!defs.containsKey("leg_right") || !defs.containsKey("leg_right3")) return;
@@ -332,8 +332,8 @@ public final class LucarioModel {
     }
 
     /**
-     * Поза сидения по геометрии ног: бёдра поднимаются вперёд почти на 90° (с поправкой, чтобы корпус
-     * не заваливался), колени — обратно, так что ноги выходят прямыми. Подходит всем трём персонажам.
+     * Sitting pose from the leg geometry: the hips lift forward by almost 90 degrees (with a correction so the torso
+     * doesn't tip back), the knees fold back, so the legs come out straight. Fits all three characters.
      */
     private static void computeSit(Definition d, Map<String, JsonObject> defs) {
         for (String side : new String[]{"right", "left"}) {
@@ -385,7 +385,7 @@ public final class LucarioModel {
                 rad(rot[0], ROT_SIGN_X), rad(rot[1], ROT_SIGN_Y), rad(rot[2], ROT_SIGN_Z)));
         built.put(name, self);
 
-        // кубы со своим поворотом/пивотом -> отдельная дочерняя часть
+        // cubes with their own rotation/pivot -> a separate child part
         int i = 0;
         for (JsonObject c : rotatedCubes) {
             double[] cp = vec(c, "pivot");
@@ -399,7 +399,7 @@ public final class LucarioModel {
         return self;
     }
 
-    /** Есть ли у куба отрицательный размер ("вывернутый" куб из Blockbench). */
+    /** Whether the cube has a negative size (an "inverted" cube from Blockbench). */
     private static boolean isNegativeCube(JsonObject c) {
         for (double s : vec(c, "size")) {
             if (s < 0) return true;
@@ -407,7 +407,7 @@ public final class LucarioModel {
         return false;
     }
 
-    /** Габариты куба после нормализации и inflate (ключ для поиска совпадающих близнецов). */
+    /** Cube dimensions after normalization and inflate (the key for finding matching twins). */
     private static String inflatedBoxKey(JsonObject c) {
         double[] o = vec(c, "origin");
         double[] s = vec(c, "size");
@@ -422,10 +422,10 @@ public final class LucarioModel {
     }
 
     /**
-     * Куб-близнец с отрицательным размером (двусторонняя оболочка Blockbench: шляпа капитана, шарф,
-     * манжеты). Bedrock рисует его зеркально внутрь, а в Java-модели после нормализации он точно
-     * совпал бы с обычным кубом — копланарные грани мерцают ("переливание текстур"). Такой близнец
-     * пропускаем: внешний вид даёт обычный куб-оригинал.
+     * A twin cube with a negative size (a double-sided shell from Blockbench: the captain's hat, scarf,
+     * cuffs). Bedrock renders it mirrored inward, but in the Java model, after normalization, it would
+     * coincide exactly with the regular cube -- coplanar faces flicker ("texture flickering / z-fighting").
+     * We skip such twins: the regular original cube provides the look.
      */
     private static boolean isShadowTwin(JsonObject c, Set<String> positiveBoxes) {
         return isNegativeCube(c) && positiveBoxes.contains(inflatedBoxKey(c));
@@ -434,11 +434,11 @@ public final class LucarioModel {
     private static void addCube(CubeListBuilder pb, JsonObject c, double px, double py, double pz) {
         double[] o = vec(c, "origin");
         double[] s = vec(c, "size");
-        // Blockbench экспортирует "вывернутые" кубы с отрицательным размером (двусторонние оболочки:
-        // шляпа капитана, шарф на holiday, манжеты рук). Bedrock рисует такой куб как обычный ящик
-        // по AABB (origin..origin+size), а Java-модель с отрицательными размерами выворачивает нормали
-        // (грани видны то с одной, то с другой стороны — "переливание") и зеркалит UV-развёртку.
-        // Нормализуем к положительному размеру, сохранив габариты и точку в пространстве.
+        // Blockbench exports "inverted" cubes with negative sizes (double-sided shells:
+        // the captain's hat, the scarf on holiday, the arm cuffs). Bedrock renders such a cube as a regular box
+        // by AABB (origin..origin+size), while the Java model with negative sizes flips the normals
+        // (faces are visible from one side, then the other -- "flickering") and mirrors the UV mapping.
+        // We normalize to a positive size, keeping the dimensions and the position in space.
         double[] lo = new double[3], sz = new double[3];
         for (int i = 0; i < 3; i++) {
             lo[i] = Math.min(o[i], o[i] + s[i]);
@@ -453,8 +453,8 @@ public final class LucarioModel {
                 .mirror(mirror)
                 .addBox((float) (o[0] - px), (float) (py - o[1] - s[1]), (float) (o[2] - pz),
                         (float) s[0], (float) s[1], (float) s[2],
-                        // кубы нулевой толщины (плоские шипы/плавники) дают мерцание: лицевая и задняя грани лежат
-                        // в одной плоскости (z-fighting). Слегка "надуваем" такую ось, чтобы грани разошлись.
+                        // zero-thickness cubes (flat spikes/fins) flicker: the front and back faces lie
+                        // in the same plane (z-fighting). We slightly "inflate" that axis so the faces separate.
                         new CubeDeformation((float) (inflate + (s[0] == 0 ? FLAT_CUBE_PUFF : 0)),
                                 (float) (inflate + (s[1] == 0 ? FLAT_CUBE_PUFF : 0)),
                                 (float) (inflate + (s[2] == 0 ? FLAT_CUBE_PUFF : 0))));

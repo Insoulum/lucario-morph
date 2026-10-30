@@ -10,21 +10,21 @@ import net.minecraft.network.chat.Component;
 import java.util.UUID;
 
 /**
- * Клиентские команды {@code /lucario} и {@code /riolu} — с 1.8.0 единственная версия
- * (серверной у мода больше нет). Образ применяется локально, запоминается в конфиге
- * и публикуется в сервис синхронизации, так что его видят другие игроки с модом.
- * Если на сервере есть чужая команда с тем же именем (датапак/другой мод) — Fabric
- * отправляет её серверу, и клиентская версия игнорируется: так работает приоритет
- * серверных команд в brigadier.
+ * Client-side {@code /lucario} and {@code /riolu} commands - since 1.8.0 the only version
+ * (the mod no longer has a server-side one). The morph is applied locally, stored in the
+ * config and published to the sync service, so other players with the mod can see it.
+ * If the server has a foreign command with the same name (a datapack/another mod), Fabric
+ * forwards it to the server and the client-side version is ignored: that is how server
+ * command priority works in brigadier.
  *
- * <p>Дерево команд общее ({@link MorphCommands}), здесь остаётся только адаптер
- * над клиентским окружением.</p>
+ * <p>The command tree is shared ({@link MorphCommands}); only the adapter over the
+ * client environment lives here.</p>
  */
 @Environment(EnvType.CLIENT)
 public final class LucarioClientCommands {
     private LucarioClientCommands() {}
 
-    /** Адаптер: дерево команд одно и то же, среда выполнения — клиентская. */
+    /** Adapter: the command tree is the same, the execution environment is client-side. */
     private static final MorphCommands.Bridge<FabricClientCommandSource> CLIENT_BRIDGE = new MorphCommands.Bridge<>() {
         @Override
         public UUID player(FabricClientCommandSource source) {

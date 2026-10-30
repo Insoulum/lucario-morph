@@ -9,40 +9,40 @@ import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 
 /**
- * 1.7.0: эмоуты ДРУГИХ игроков, полученные через сервис синхронизации
- * ({@link EmoteSync} — WebSocket-пуш, а при его недоступности запасной HTTP-опрос).
+ * 1.7.0: OTHER players' emotes received via the sync service
+ * ({@link EmoteSync} - WebSocket push, with a fallback HTTP poll when it is unavailable).
  * <p>
- * Раньше эмоут был локальным (см. заметку в {@link DanceState}): {@code dancing} в
- * {@code AvatarRendererMixin} вычислялся только для своего игрока. Теперь состояние
- * эмоута — пер-игроковое: у каждого игрока своё имя анимации и свои часы.
+ * Previously an emote was local (see the note in {@link DanceState}): {@code dancing} in
+ * {@code AvatarRendererMixin} was computed only for the local player. Emote state is now
+ * per-player: each player has their own animation name and their own clock.
  * <p>
- * Как устроена запись:
+ * Record layout:
  * <ul>
- *   <li>{@code anim} — короткое имя анимации или {@link PreviewState#TPOSE};</li>
- *   <li>{@code startMs} — момент старта ПО ЛОКАЛЬНЫМ часам наблюдателя: событие
- *       приходит через ~пол-RTT, часы ставятся в момент получения, поэтому анимация
- *       начинается с первого ключевого кадра без синхронизации часов между игроками
- *       (для зацикленных эмоутов фаза и вовсе не важна);</li>
- *   <li>{@code frozenSeconds} — время, замороженное в момент стопа (кадр держится
- *       во время кроссфейда — как у локального {@link DanceState#stop(String)});</li>
- *   <li>{@code applyTs} — отметка отправителя (epoch ms) для ПОРЯДКА событий: все
- *       события одного игрока метятся его часами, поэтому устаревший снимок с другого
- *       зеркала не может перебить более свежее событие;</li>
- *   <li>{@code touchMs} — локальное время последнего обновления: страховка от
- *       «зависших» эмоутов (если обновления прекратились — игрок вылетел, а TTL
- *       сервиса не дошёл), эмоут гаснет сам.</li>
+ *   <li>{@code anim} - short animation name or {@link PreviewState#TPOSE};</li>
+ *   <li>{@code startMs} - start moment BY THE OBSERVER'S LOCAL CLOCK: the event
+ *       arrives after ~half an RTT, the clock is set at receipt, so the animation
+ *       starts from the first keyframe with no clock synchronization between players
+ *       (for looping emotes the phase does not matter anyway);</li>
+ *   <li>{@code frozenSeconds} - time frozen at the stop (the frame is held
+ *       during the crossfade - like the local {@link DanceState#stop(String)});</li>
+ *   <li>{@code applyTs} - sender timestamp (epoch ms) for EVENT ORDER: all
+ *       events of one player are stamped with that player's clock, so a stale snapshot
+ *       from another mirror cannot override a fresher event;</li>
+ *   <li>{@code touchMs} - local time of the last update: a guard against
+ *       "hung" emotes (if updates stopped - the player crashed and the service TTL
+ *       has not fired yet), the emote fades out on its own.</li>
  * </ul>
- * Потокобезопасность: карта — {@link ConcurrentHashMap}; запись пишется только с
- * главного потока ({@code mc.execute} из слушателей сети), читается — на потоке рендера.
+ * Thread safety: the map is a {@link ConcurrentHashMap}; writes happen only on
+ * the main thread ({@code mc.execute} from the network listeners), reads - on the render thread.
  */
 @Environment(EnvType.CLIENT)
 public final class RemoteEmotes {
-    /** Страховка: эмоут без обновлений дольше этого гаснет сам (TTL сервиса — 30 с, refresh — 10 с). */
+    /** Guard: an emote without updates for longer than this fades out on its own (service TTL - 30 s, refresh - 10 s). */
     static final long STALE_MS = 35_000L;
-    /** Сколько секунд держать кадр после стопа (кроссфейд ~0.2 с — с запасом). */
+    /** How many seconds to hold the frame after a stop (crossfade ~0.2 s - with margin). */
     private static final long DEAD_KEEP_MS = 5_000L;
 
-    /** Одна эмоут-запись игрока (неизменяемая; карта хранит последний вариант). */
+    /** One player emote record (immutable; the map keeps the latest variant). */
     public static final class Emote {
         public final String anim;
         final long startMs;
@@ -61,7 +61,7 @@ public final class RemoteEmotes {
             this.touchMs = touchMs;
         }
 
-        /** Секунды эмоута: идут, пока активен; заморожены после стопа (для фейда). */
+        /** Emote seconds: run while active; frozen after a stop (for the fade). */
         public double seconds(long nowMs) {
             return active ? (nowMs - startMs) / 1000.0 : frozenSeconds;
         }
@@ -75,16 +75,16 @@ public final class RemoteEmotes {
         return MAP.get(id);
     }
 
-    /** Активен ли эмоут игрока прямо сейчас (с учётом страховки от зависания). */
+    /** Whether the player's emote is active right now (with the hang guard applied). */
     public static boolean active(UUID id) {
         Emote e = MAP.get(id);
         return e != null && e.active && System.currentTimeMillis() - e.touchMs <= STALE_MS;
     }
 
     /**
-     * Применяет событие/снимок от сервиса. Порядок событий защищён отметкой отправителя:
-     * старт принимается только СТРОГО новее, стоп — не старее (TTL-стоп сервиса приходит
-     * на 1 мс позже последнего refresh по тем же часам отправителя — см. service.py).
+     * Applies an event/snapshot from the service. Event order is protected by the sender
+     * timestamp: a start is accepted only if STRICTLY newer, a stop - not older (the
+     * service's TTL stop arrives 1 ms after the last refresh on the same sender clock - see service.py).
      */
     public static void apply(UUID id, String anim, boolean active, double ts) {
         if (id == null || anim == null || anim.isEmpty()) {
@@ -94,18 +94,18 @@ public final class RemoteEmotes {
         long now = System.currentTimeMillis();
         Emote cur = MAP.get(id);
         if (cur != null && ts > 0 && ts < cur.applyTs) {
-            return; // устаревшее событие (например, отстающее зеркало) — игнорируем
+            return; // stale event (e.g. from a lagging mirror) - ignored
         }
         if (active) {
             if (cur != null && cur.active && cur.anim.equals(anim)) {
-                // refresh «я ещё играю»: часы НЕ перезапускаем
+                // refresh "still playing": do NOT restart the clock
                 MAP.put(id, new Emote(anim, cur.startMs, true, 0.0F,
                         Math.max(cur.applyTs, ts), now));
             } else {
                 MAP.put(id, new Emote(anim, now, true, 0.0F, ts, now));
             }
         } else {
-            if (cur == null) return;               // стоп без известного старта — нечего гасить
+            if (cur == null) return;               // stop without a known start - nothing to fade out
             if (cur.active) {
                 float frozen = (now - cur.startMs) / 1000.0F;
                 MAP.put(id, new Emote(cur.anim, cur.startMs, false, frozen,
@@ -117,8 +117,8 @@ public final class RemoteEmotes {
         }
     }
 
-    /** Снимок с зеркала: id, которых в нём нет, чистим, только если они и так погашены
-     *  (активные оставляем — зеркало могло отстать; стоп придёт отдельным событием/TTL). */
+    /** Snapshot from a mirror: ids missing from it are removed only if already faded out
+     *  (active ones are kept - the mirror may lag; a stop will arrive as a separate event/TTL). */
     static void dropAbsentInactive(List<UUID> present) {
         for (Map.Entry<UUID, Emote> e : MAP.entrySet()) {
             if (!present.contains(e.getKey())) {
@@ -133,7 +133,7 @@ public final class RemoteEmotes {
         return new ArrayList<>(MAP.keySet());
     }
 
-    /** Гигиена: подчищаем записи, которые давно не обновлялись (вылет игрока, смена зеркал). */
+    /** Hygiene: prune records that have not been updated for a while (player crash, mirror change). */
     static void prune(long nowMs) {
         MAP.values().removeIf(e -> nowMs - e.touchMs > Math.max(STALE_MS, DEAD_KEEP_MS));
     }

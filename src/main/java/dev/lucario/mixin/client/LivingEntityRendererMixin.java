@@ -18,8 +18,8 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 public abstract class LivingEntityRendererMixin {
 
     /**
-     * В начале ванильного submit() рисуем Лукарио/Риолу. Ванильное тело скрыто (см. getRenderType ниже),
-     * а имя над головой всё так же рисует остаток ванильного метода.
+     * At the start of the vanilla submit() we render Lucario/Riolu. The vanilla body is hidden (see getRenderType below),
+     * while the name tag above the head is still drawn by the rest of the vanilla method.
      */
     @Inject(method = "submit(Lnet/minecraft/client/renderer/entity/state/LivingEntityRenderState;Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/SubmitNodeCollector;Lnet/minecraft/client/renderer/state/level/CameraRenderState;)V",
             at = @At("HEAD"))
@@ -30,7 +30,7 @@ public abstract class LivingEntityRendererMixin {
         }
     }
 
-    /** null = "ванильную модель не рисовать". */
+    /** null = "do not render the vanilla model". */
     @Inject(method = "getRenderType(Lnet/minecraft/client/renderer/entity/state/LivingEntityRenderState;ZZZ)Lnet/minecraft/client/renderer/rendertype/RenderType;",
             at = @At("HEAD"), cancellable = true)
     private void lucario$hideVanillaBody(LivingEntityRenderState state, boolean showBody, boolean translucent,

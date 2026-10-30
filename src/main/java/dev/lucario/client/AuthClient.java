@@ -21,75 +21,75 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * Авторизация записи образа через session-серверы Mojang — защита от подмены
- * чужого UUID на зеркалах синхронизации. <b>Полностью автоматическая: никакой
- * команды нет</b> — игрок просто играет, защита включается сама.
+ * Authorization of a morph record via the Mojang session servers - protection
+ * against UUID spoofing on the sync mirrors. <b>Fully automatic: there is no
+ * command</b> - the player just plays, and protection kicks in by itself.
  *
- * <p>Как и ванильный сервер при входе игрока, сервис «притворяется» игровым сервером:
- * клиент доказывает владение аккаунтом цепочкой challenge → join → verify, после чего
- * зеркала хранят для этого UUID токен записи и требуют его в PUT/DELETE
- * ({@code X-Lucario-Token}). Токен выдаётся сервисом и хранится в конфиге; если конфиг
- * удалить — повторная авторизация вернёт <b>тот же</b> токен, осиротевших записей не бывает.</p>
+ * <p>Just like a vanilla server when a player joins, the service "impersonates" a game
+ * server: the client proves account ownership through the challenge → join → verify chain,
+ * after which the mirrors store a write token for this UUID and require it in PUT/DELETE
+ * ({@code X-Lucario-Token}). The token is issued by the service and kept in the config;
+ * deleting the config brings back <b>the same</b> token on re-authorization - orphaned records never happen.</p>
  *
- * <p>Расписание: как только зеркало ответило 401 на публикацию (значит, запись уже
- * защищена или защищается) — попытка сразу; при неудаче ретраи по нарастающей:
- * две паузы по 30 секунд, две по минуте, затем каждые 5 минут — бесконечно, пока
- * не получится. Успех сбрасывает расписание; следующий 401 (например, после сноса
- * tokens.json на сервисе) запускает его заново. Повторные 401 от ретраев публикации
- * расписание НЕ ускоряют — иначе бэкофф не работал бы. Всё выключается в конфиге
- * ({@code autoAuth: false}) — тогда session-токен Mojang вообще не используется.</p>
+ * <p>Schedule: as soon as a mirror replies 401 to a publish (the record is already
+ * protected or being protected) - an attempt follows immediately; on failure, retries
+ * escalate: two 30-second pauses, two one-minute ones, then every 5 minutes - forever,
+ * until it succeeds. Success resets the schedule; the next 401 (for example, after
+ * tokens.json is wiped on the service) starts it again. Repeated 401s from publish
+ * retries do NOT speed up the schedule - otherwise the backoff would be pointless.
+ * Everything is switched off in the config ({@code autoAuth: false}) - then the Mojang session token is unused.</p>
  *
- * <p>Безопасность:</p>
+ * <p>Security:</p>
  * <ul>
- *   <li>{@code accessToken} уходит <b>только напрямую в Mojang по HTTPS</b>
- *       ({@code sessionserver.mojang.com/session/minecraft/join}) — зеркала его не видят;</li>
- *   <li>на зеркала летят лишь UUID, ник и одноразовый serverId;</li>
- *   <li>работает только с лицензионной сессией (у офлайн-клиентов join Mojang отклонит);
- *       незащищённые UUID продолжают писаться открыто — защита opt-in.</li>
+ *   <li>{@code accessToken} is sent <b>only directly to Mojang over HTTPS</b>
+ *       ({@code sessionserver.mojang.com/session/minecraft/join}) - the mirrors never see it;</li>
+ *   <li>only the UUID, the nickname, and a one-time serverId fly to the mirrors;</li>
+ *   <li>works only with a licensed session (Mojang rejects join for offline clients);
+ *       unprotected UUIDs keep being written openly - protection is opt-in.</li>
  * </ul>
  *
- * <p>Устойчивость (anti-deadlock): ни одного лока — только {@link AtomicBoolean}/volatile;
- * вся цепочка асинхронная (потоки HttpClient), рендер-поток никогда не блокируется;
- * у каждого запроса свой таймаут; одновременная авторизация невозможна; расписание
- * продвигается из игрового тика и переживает вылет цепочки (release через finally).</p>
+ * <p>Resilience (anti-deadlock): not a single lock - only {@link AtomicBoolean}/volatile;
+ * the whole chain is asynchronous (HttpClient threads), the render thread is never blocked;
+ * every request has its own timeout; concurrent authorization is impossible; the schedule
+ * is advanced from the game tick and survives a chain crash (release via finally).</p>
  */
 @Environment(EnvType.CLIENT)
 public final class AuthClient {
     private static final Gson GSON = new Gson();
-    /** Session-сервер Mojang: accessToken ходит только сюда и только по HTTPS. */
+    /** Mojang session server: accessToken goes only here and only over HTTPS. */
     private static final String MOJANG_JOIN = "https://sessionserver.mojang.com/session/minecraft/join";
 
-    /** Только одна цепочка challenge → join → verify за раз. */
+    /** Only one challenge → join → verify chain at a time. */
     private static final AtomicBoolean IN_FLIGHT = new AtomicBoolean(false);
-    /** Запись нужна: зеркало ответило 401, и с тех пор успеха не было. */
+    /** Record needed: a mirror replied 401, and there has been no success since. */
     private static final AtomicBoolean NEEDED = new AtomicBoolean(false);
-    /** Попыток сделано в текущем цикле (успех или новый 401 после успеха сбрасывают). */
+    /** Attempts made in the current cycle (success, or a new 401 after success, resets it). */
     private static final AtomicInteger ATTEMPTS = new AtomicInteger(0);
-    /** Раньше этого момента (мс) следующую попытку не начинаем. */
+    /** No next attempt starts before this moment (ms). */
     private static volatile long nextAttemptMs = 0L;
-    /** Offline-сервер уже распознан — предупреждение показываем один раз за сессию игры. */
+    /** Offline server already detected - the warning is shown once per game session. */
     private static boolean offlineWarned = false;
 
     private AuthClient() {}
 
-    /** Зеркало ответило 401 — запись нужна. Первая попытка сразу, дальше по расписанию. */
+    /** A mirror replied 401 - record needed. First attempt immediately, then on schedule. */
     public static void onUnauthorized() {
         if (!Boolean.TRUE.equals(SyncConfig.get().autoAuth)) return;
         if (NEEDED.compareAndSet(false, true)) {
-            ATTEMPTS.set(0);      // новый цикл: расписание с нуля
+            ATTEMPTS.set(0);      // new cycle: schedule starts from scratch
             nextAttemptMs = 0L;
         }
         tryRun();
     }
 
-    /** Отключение от сервера: сбрасываем незавершённый цикл авторизации. */
+    /** Disconnect from the server: resets an unfinished authorization cycle. */
     public static void reset() {
         NEEDED.set(false);
         ATTEMPTS.set(0);
         nextAttemptMs = 0L;
     }
 
-    /** Вызывается каждый клиентский тик (из {@link SyncClient#tick}): продвигает расписание. */
+    /** Called every client tick (from {@link SyncClient#tick}): advances the schedule. */
     public static void tick() {
         if (NEEDED.get()
                 && !IN_FLIGHT.get()
@@ -106,7 +106,7 @@ public final class AuthClient {
         Minecraft mc = Minecraft.getInstance();
         SyncConfig cfg = SyncConfig.get();
         if (!cfg.syncEnabled || cfg.serviceUrls.isEmpty()) {
-            NEEDED.set(false); // защищать нечего; при следующем 401 цикл начнётся заново
+            NEEDED.set(false); // nothing to protect; the next 401 starts the cycle anew
             IN_FLIGHT.set(false);
             return;
         }
@@ -119,8 +119,8 @@ public final class AuthClient {
                 fail(mc, "нет лицензионной сессии Minecraft");
                 return;
             }
-            // Offline-сервер: UUID игрока вычислен из ника и не совпадает с профилем Mojang —
-            // join всё равно отклонят, так что не долбим session-сервер бесконечно.
+            // Offline server: the player UUID is derived from the nickname and does not match
+            // the Mojang profile - join would be rejected anyway, so do not hammer the session server endlessly.
             UUID sessionProfile = mc.getGameProfile() != null ? mc.getGameProfile().id() : null;
             if (sessionProfile != null && !sessionProfile.equals(mc.player.getUUID())) {
                 NEEDED.set(false);
@@ -139,8 +139,8 @@ public final class AuthClient {
             String uuid = mc.player.getUUID().toString();
             String accessToken = user.getAccessToken();
 
-            // Цепочка по зеркалам ПОСЛЕДОВАТЕЛЬНО: Mojang принимает 6 join/30 сек на аккаунт,
-            // и при параллельном старте несколько зеркал могли бы упереться в лимит.
+            // The chain runs across mirrors SEQUENTIALLY: Mojang allows 6 joins/30 sec per account,
+            // and with a parallel start several mirrors could hit that limit.
             Map<String, String> got = new ConcurrentHashMap<>();
             Map<String, String> errors = new ConcurrentHashMap<>();
             CompletableFuture<Void> chain = CompletableFuture.completedFuture(null);
@@ -153,7 +153,7 @@ public final class AuthClient {
                     if (got.isEmpty()) fail(mc, combine(errors, err));
                     else succeed(mc, got);
                 } finally {
-                    IN_FLIGHT.set(false); // release гарантирован даже при сбое в fail/succeed
+                    IN_FLIGHT.set(false); // release is guaranteed even if fail/succeed throws
                 }
             });
             launched = true;
@@ -164,14 +164,14 @@ public final class AuthClient {
         }
     }
 
-    /** Пауза после n-й неудачи: 30 с, 30 с, минута, минута, дальше каждые 5 минут — бесконечно. */
+    /** Pause after the n-th failure: 30 s, 30 s, a minute, a minute, then every 5 minutes - forever. */
     private static long delayAfterFailureMs(int n) {
         if (n <= 2) return 30_000L;
         if (n <= 4) return 60_000L;
         return 5 * 60_000L;
     }
 
-    /** Неудача: планирует следующую попытку; в чат — один раз за цикл, дальше только лог. */
+    /** Failure: schedules the next attempt; to chat once per cycle, after that log only. */
     private static void fail(Minecraft mc, String reason) {
         int n = ATTEMPTS.get();
         long delay = delayAfterFailureMs(n);
@@ -179,13 +179,13 @@ public final class AuthClient {
         if (n == 1) {
             message(mc, Component.translatable("lucariomod.auth.failed", reason));
         }
-        if (n <= 4 || n % 12 == 0) { // первые попытки и далее раз в час — без спама
+        if (n <= 4 || n % 12 == 0) { // the first attempts and then once an hour - no spam
             LucarioMod.LOGGER.warn("[Lucario Sync] Авторизация записи не удалась (попытка {}, следующая через {} с): {}",
                     n, delay / 1000, reason);
         }
     }
 
-    /** Успех: сбрасывает расписание, сохраняет токены, доталкивает отложенную публикацию. */
+    /** Success: resets the schedule, saves the tokens, flushes the pending publish. */
     private static void succeed(Minecraft mc, Map<String, String> got) {
         NEEDED.set(false);
         ATTEMPTS.set(0);
@@ -199,8 +199,8 @@ public final class AuthClient {
         });
     }
 
-    /** Цепочка challenge → join → verify для одного зеркала; токен кладётся в {@code got},
-     *  ошибка — в {@code errors}. Ошибка одного зеркала не роняет остальные. */
+    /** The challenge → join → verify chain for one mirror; the token goes into {@code got},
+     *  an error into {@code errors}. One mirror's failure does not sink the others. */
     private static CompletableFuture<Void> authMirror(String mirror, String name, String uuid,
                                                       String accessToken,
                                                       Map<String, String> got, Map<String, String> errors) {
@@ -235,7 +235,7 @@ public final class AuthClient {
         });
     }
 
-    /** Собирает причину неудачи из ошибок по зеркалам (или из корневого исключения). */
+    /** Builds the failure reason from the per-mirror errors (or from the root exception). */
     private static String combine(Map<String, String> errors, Throwable err) {
         if (!errors.isEmpty()) {
             StringBuilder sb = new StringBuilder();
@@ -248,9 +248,9 @@ public final class AuthClient {
         return err == null ? "зеркала не ответили" : rootMessage(err);
     }
 
-    // ------------------------------------------------------------ HTTP-помощники
+    // ------------------------------------------------------------ HTTP helpers
 
-    /** POST на конкретное зеркало; ответ — JSON-объект (тело ограничено, как и у чтения). */
+    /** POST to a specific mirror; the response is a JSON object (body capped, same as for reads). */
     private static CompletableFuture<JsonObject> post(String url, String body) {
         HttpRequest req;
         try {
@@ -278,7 +278,7 @@ public final class AuthClient {
         });
     }
 
-    /** Шаг 2: POST join на session-сервер Mojang. true — Mojang ответил 204 (успех). */
+    /** Step 2: POST join to the Mojang session server. true - Mojang replied 204 (success). */
     private static CompletableFuture<Boolean> mojangJoin(String body) {
         HttpRequest req;
         try {
@@ -294,9 +294,9 @@ public final class AuthClient {
                 .thenApply(resp -> resp.statusCode() == 204);
     }
 
-    // ------------------------------------------------------------ утилиты
+    // ------------------------------------------------------------ utilities
 
-    /** Сообщение в чат из любого потока (без блокировок: всегда через mc.execute). */
+    /** Chat message from any thread (lock-free: always via mc.execute). */
     private static void message(Minecraft mc, Component text) {
         mc.execute(() -> {
             if (mc.player != null) {
@@ -305,7 +305,7 @@ public final class AuthClient {
         });
     }
 
-    /** Разворачивает CompletionException-цепочку до корня и возвращает человекочитаемый текст. */
+    /** Unwraps the CompletionException chain to the root and returns human-readable text. */
     private static String rootMessage(Throwable t) {
         Throwable cur = t;
         while (cur.getCause() != null && cur.getCause() != cur) {

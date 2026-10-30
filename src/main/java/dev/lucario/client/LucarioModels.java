@@ -13,20 +13,20 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Кэш моделей. Вызывается только из потока рендера.
+ * Model cache. Called only from the render thread.
  *
- * ВАЖНО (1.4.3): модель выпекается ОТДЕЛЬНО для каждого игрока. Раньше кэш был общий
- * на базовый вариант, и два игрока с одинаковым образом (в т.ч. обычный и shiny — база та же)
- * делили одни и те же ModelPart. Сабмит-пайплайн 26.x читает позы костей позже, при отрисовке,
- * поэтому побеждала поза того, кто был засабмичен последним, — и модели "копировали" друг друга.
- * Разбор Bedrock-геометрии (тяжёлая часть) по-прежнему кэшируется и шарится; на игрока
- * выпекается только дешёвое дерево ModelPart.
+ * IMPORTANT (1.4.3): the model is baked SEPARATELY for each player. The cache used to be shared
+ * per base variant, and two players with the same morph (including normal and shiny - same base)
+ * shared the same ModelParts. The 26.x submit pipeline reads bone poses later, at draw time,
+ * so the pose of whoever was submitted last won - the models "copied" each other.
+ * Bedrock geometry parsing (the heavy part) is still cached and shared; only the cheap
+ * ModelPart tree is baked per player.
  */
 @Environment(EnvType.CLIENT)
 public final class LucarioModels {
-    /** Разобранная геометрия/анимации на базовый вариант — дорогой парсинг, шарится всеми. */
+    /** Parsed geometry/animations per base variant - expensive to parse, shared by everyone. */
     private static final Map<String, Optional<LucarioModel.Definition>> DEFINITIONS = new HashMap<>();
-    /** Выпеченные модели на пару (игрок, вариант) — у каждого свои ModelPart, позы не пересекаются. */
+    /** Baked models per (player, variant) pair - each has its own ModelParts, poses never overlap. */
     private static final Map<UUID, Map<String, Optional<LucarioModel>>> PLAYERS = Collections.synchronizedMap(
             new LinkedHashMap<>(64, 0.75f, true) {
                 @Override
@@ -34,20 +34,20 @@ public final class LucarioModels {
                     return size() > MAX_PLAYERS;
                 }
             });
-    /** Отдельный экземпляр для руки от первого лица: его кости не должны трогать чужие сабмиты. */
+    /** Separate instance for the first-person arm: its bones must not touch other submits. */
     private static final Map<String, Optional<LucarioModel>> FIRST_PERSON = new HashMap<>();
-    /** Защита от роста кэша (игроки приходят и уходят): LRU вытесняет одного давнего игрока, не сбрасывая весь кэш. */
+    /** Cache growth guard (players come and go): the LRU evicts one stale player instead of the whole cache. */
     private static final int MAX_PLAYERS = 48;
 
     private LucarioModels() {}
 
-    /** Личная модель игрока для рендера в третьем лице. */
+    /** The player's personal model for third-person rendering. */
     public static LucarioModel get(UUID player, String baseVariant) {
         Map<String, Optional<LucarioModel>> perPlayer = PLAYERS.computeIfAbsent(player, id -> new HashMap<>());
         return perPlayer.computeIfAbsent(baseVariant, v -> bake(v)).orElse(null);
     }
 
-    /** Модель для руки от первого лица (только локальный игрок, свой экземпляр костей). */
+    /** Model for the first-person arm (local player only, its own bone instance). */
     public static LucarioModel getFirstPerson(String baseVariant) {
         return FIRST_PERSON.computeIfAbsent(baseVariant, v -> bake(v)).orElse(null);
     }
@@ -70,7 +70,7 @@ public final class LucarioModels {
         }
     }
 
-    /** Полный сброс кэша: вызывается из слушателя перезагрузки ресурсов в LucarioClient. */
+    /** Full cache reset: called from the resource reload listener in LucarioClient. */
     public static void clear() {
         synchronized (LucarioModels.class) {
             DEFINITIONS.clear();

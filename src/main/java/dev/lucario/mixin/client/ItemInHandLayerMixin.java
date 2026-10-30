@@ -11,10 +11,10 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
- * Ванильный слой предметов (ItemInHandLayer) рисует предмет в координатах руки Стива.
- * У Лукарио/Риолу/Мега скелет другой, поэтому этот предмет "висит в воздухе" рядом с моделью,
- * а свой предмет мы рисуем сами (LucarioRenderer.renderHeldItem) — уже в кисти Лукарио.
- * Для превращённых игроков ванильный слой предметов полностью отключаем (иначе предмет дублируется).
+ * The vanilla item layer (ItemInHandLayer) renders the held item in Steve's hand coordinates.
+ * Lucario/Riolu/Mega have a different skeleton, so that item ends up "hanging in the air" next to the model;
+ * we render our own held item ourselves (LucarioRenderer.renderHeldItem), already in Lucario's paw.
+ * For morphed players the vanilla item layer is disabled entirely (otherwise the item would be duplicated).
  */
 @Mixin(ItemInHandLayer.class)
 public class ItemInHandLayerMixin {

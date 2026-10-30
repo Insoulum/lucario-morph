@@ -29,91 +29,91 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * Синхронизация образов через внешний HTTP-сервис. С 1.8.0 это единственный канал
- * видимости образов: мод чисто клиентский и на сервере не устанавливается.
+ * Morph sync through an external HTTP service. Since 1.8.0 this is the only channel of
+ * morph visibility: the mod is client-only and is not installed on the server.
  *
- * <p>Как это работает (схема «как у Figura»):</p>
+ * <p>How it works (the "Figura-like" scheme):</p>
  * <ul>
- *   <li>клиент публикует свой образ (UUID → вариант) на все зеркала из конфига — при смене
- *       образа и при входе в мир; если зеркала в тот момент были недоступны, публикация
- *       повторяется раз в 30 секунд, пока не дойдёт;</li>
- *   <li>раз в {@code heartbeatMinutes} минут клиент тихо перепубликует текущий образ
- *       («пульс»), чтобы запись не протухла на зеркалах с коротким TTL (записи без
- *       обновлений считаются брошенными и удаляются); 0 — выключить;</li>
- *   <li>1.7.7: полный HTTP-опрос всех игроков на сервере — запасной путь. Пока WS открыт
- *       ({@link EmoteSync}), изменения приходят пушем мгновенно, и опрос ходит лишь раз
- *       в 60–120 с — страховка от потерянных при переподключении фреймов и от старых
- *       зеркал, где WS есть, а адресного пуша морфов ещё нет (сервисы до 1.5.1).
- *       WS закрыт — опрос возвращается к {@code syncIntervalSeconds} и снова несёт
- *       локальный кэш {@link ClientMorphs};</li>
- *   <li>1.7.3: если морф не выбран, клиент публикует маркер {@link #PRESENT_MARKER}
- *       («мод есть, дефолтный скин») — запись не удаляется, и база отличает «мод без
- *       морфа» от «мода нет». Входящие маркеры (события, снапшоты, опрос) трактуются
- *       как «образа нет»; отрисовке маркер не подлежит — белый список его отбрасывает.</li>
+ *   <li>the client publishes its morph (UUID -> variant) to every mirror from the config - on
+ *       morph change and on joining a world; if the mirrors were unreachable at that moment,
+ *       the publish is retried every 30 seconds until it gets through;</li>
+ *   <li>every {@code heartbeatMinutes} minutes the client quietly re-publishes the current
+ *       morph (a "heartbeat") so the record does not go stale on mirrors with a short TTL
+ *       (records without updates are considered abandoned and deleted); 0 - disable;</li>
+ *   <li>1.7.7: a full HTTP poll of every player on the server - the fallback path. While the
+ *       WS is open ({@link EmoteSync}), changes arrive instantly via push, and the poll runs
+ *       only once every 60-120 s - a safety net against frames lost on reconnect and against
+ *       old mirrors that have WS but no targeted morph push yet (services before 1.5.1).
+ *       WS closed - the poll returns to {@code syncIntervalSeconds} and again carries the
+ *       local {@link ClientMorphs} cache;</li>
+ *   <li>1.7.3: if no morph is selected, the client publishes the {@link #PRESENT_MARKER}
+ *       marker ("mod present, default skin") - the record is not deleted, and the backend
+ *       can tell "mod without a morph" from "no mod". Incoming markers (events, snapshots,
+ *       polls) are treated as "no morph"; it must not be rendered - the whitelist drops it.</li>
  * </ul>
  *
- * <p>Публикация идёт во <b>все</b> зеркала сразу, чтение — с первого ответившего
- * (приоритет у зеркала, которое успешно ответило в прошлый раз). Если зеркало защищило
- * UUID токеном записи, публикация шлёт заголовок {@code X-Lucario-Token}; при 401
- * автоматически запускается авторизация через Mojang ({@link AuthClient}: попытка сразу,
- * затем ретраи 2×30 с, 2×1 мин и каждые 5 минут). Все данные проверяются белым списком {@link Variants}, поэтому мусор
- * с чужого зеркала не отрисуется. Тело любого ответа обрезается лимитом
- * {@link #MAX_FETCH_BYTES}: злое зеркало не сможет уронить клиент по памяти.</p>
+ * <p>Publishing goes to <b>all</b> mirrors at once, reading - from the first one to answer
+ * (the mirror that answered successfully last time has priority). If a mirror protected a
+ * UUID with a record token, the publish sends the {@code X-Lucario-Token} header; on 401
+ * Mojang authorization starts automatically ({@link AuthClient}: an attempt right away,
+ * then retries 2x30 s, 2x1 min and every 5 minutes). All data is validated by the {@link Variants} whitelist,
+ * so garbage from someone else's mirror will not render. Any response body is capped by the
+ * {@link #MAX_FETCH_BYTES} limit: a malicious mirror cannot take the client down with OOM.</p>
  */
 @Environment(EnvType.CLIENT)
 public final class SyncClient {
-    /** Общий пул соединений (виден AuthClient — авторизация ходит в те же зеркала и в Mojang). */
+    /** Shared connection pool (visible to AuthClient - authorization goes to the same mirrors and to Mojang). */
     static final HttpClient HTTP = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(3))
             .build();
     private static final Gson GSON = new Gson();
-    /** Максимум UUID в одном запросе на чтение. */
+    /** Maximum UUIDs in a single read request. */
     private static final int BATCH = 100;
-    /** Максимум тела ответа зеркала (1 КиБ хватит на 100 UUID с запасом; лимит — защита от OOM). */
+    /** Maximum mirror response body (1 KiB is enough for 100 UUIDs with room to spare; the cap guards against OOM). */
     private static final int MAX_FETCH_BYTES = 1024 * 1024;
-    /** Пауза между попытками допубликовать образ, если зеркала не ответили. */
+    /** Pause between attempts to re-publish the morph when the mirrors did not answer. */
     private static final long RETRY_BACKOFF_MS = 30_000L;
 
     /**
-     * 1.7.3: маркер «мод есть, морф не выбран». Публикуется вместо удаления записи,
-     * сервер 1.5.3+ хранит его как обычную запись. Не настоящий вариант: белый список
-     * {@link Variants} отбрасывает его на приёме, поэтому он никогда не отрисуется.
+     * 1.7.3: the "mod present, no morph selected" marker. Published instead of deleting
+     * the record; the 1.5.3+ server stores it as a regular record. Not a real variant:
+     * the {@link Variants} whitelist rejects it on receive, so it never renders.
      */
     public static final String PRESENT_MARKER = "__present__";
 
-    /** Зеркало, которое последним успешно ответило — пробуем его первым. */
+    /** The mirror that answered successfully most recently - tried first. */
     private static volatile String preferredMirror = null;
     private static long nextCycleMs = 0L;
-    /** 1.7.7: страховочный полный опрос при живом WS — база 90 с ±33% (итого 60–120 с).
-     *  Лечит потерянные при переподключениях пуш-фреймы и зеркала, где WS есть, а пуша
-     *  морфов ещё нет (сервисы до 1.5.1). */
+    /** 1.7.7: safety-net full poll while the WS is alive - base 90 s +/-33% (60-120 s total).
+     *  Heals push frames lost across reconnects and mirrors that have WS but no morph
+     *  push yet (services before 1.5.1). */
     private static final long RESYNC_MS = 90_000L;
     private static long nextResyncMs = 0L;
-    /** Следующий «пульс» — тихая перепубликация текущего образа (мс epoch; 0 = расписание не начато). */
+    /** Next "heartbeat" - a quiet re-publish of the current morph (epoch ms; 0 = schedule not started). */
     private static volatile long nextHeartbeatMs = 0L;
     private static final AtomicBoolean lastCycleFailed = new AtomicBoolean(false);
     private static volatile long lastPublishFailLogMs = 0L;
-    /** Флаг «при входе в мир надо применить запомненный образ» (когда игрок заспавнится). */
+    /** Flag: "on world join the remembered morph must be applied" (once the player has spawned). */
     private static volatile boolean pendingApply = false;
-    /** Образ, который ещё не удалось опубликовать на все зеркала (кandidat для ретрая). */
+    /** Morph that could not yet be published to every mirror (candidate for retry). */
     private static volatile String pendingPublish = null;
     private static volatile long nextPublishAttemptMs = 0L;
-    /** 1.7.7-debug2: троттлинг запросов /health (сам зонд тоже занимает conn и лимит запросов). */
+    /** 1.7.7-debug2: throttling of /health requests (the probe itself also takes a conn and request quota). */
     private static volatile long lastHealthMs = 0L;
-    /** 1.7.7-debug4: момент последнего ПОЛНОГО забора (цикл или ресинк). Нужен, чтобы
-     *  страховочный ресинк при открытии WS не дублировал свежий полный GET: при каждом
-     *  входе в мир обычный цикл успевал отработать (WS коннектится ~0.5 с), а затем
-     *  «страховка» делала ВТОРОЙ такой же GET /v1/morphs — страховывать было нечего. */
+    /** 1.7.7-debug4: moment of the last FULL fetch (cycle or resync). Needed so the
+     *  safety-net resync on WS open does not duplicate a fresh full GET: on every
+     *  world join the regular cycle had already run (WS connects in ~0.5 s), and then
+     *  the "safety net" did a SECOND identical GET /v1/morphs - there was nothing to insure. */
     private static volatile long lastFullFetchMs = 0L;
 
     private SyncClient() {}
 
-    // ============================================================ публикация себя
+    // ============================================================ publishing self
 
     /**
-     * Публикует состояние игрока на все настроенные зеркала. Вариант — ключ из
-     * {@link Variants}; null/пустая строка («дефолтный скин») публикуется как
-     * {@link #PRESENT_MARKER} — постоянная регистрация «мод есть» (1.7.3).
+     * Publishes the player's state to every configured mirror. The variant is a key from
+     * {@link Variants}; null/empty string ("default skin") is published as
+     * {@link #PRESENT_MARKER} - a permanent "mod present" registration (1.7.3).
      */
     public static void publish(String variant) {
         String key = variant == null ? "" : variant;
@@ -124,16 +124,16 @@ public final class SyncClient {
         doPublish(key);
     }
 
-    /** Одна попытка опубликовать {@code key} на все зеркала. */
+    /** One attempt to publish {@code key} to every mirror. */
     private static void doPublish(String key) {
         SyncConfig cfg = SyncConfig.get();
-        // Публикация — тоже внешний обмен: требуется явное согласие (opt-in).
+        // Publishing is also an external exchange: explicit consent (opt-in) is required.
         if (!cfg.syncActive() || cfg.serviceUrls.isEmpty()) {
             pendingPublish = null;
             return;
         }
         UUID self = selfUuid();
-        if (self == null) return; // игрок ещё не заспавнился — ретрай сделает tick()
+        if (self == null) return; // the player has not spawned yet - tick() will retry
 
         String body = GSON.toJson(Map.of("variant", key));
         int total = cfg.serviceUrls.size();
@@ -144,7 +144,7 @@ public final class SyncClient {
                 HttpRequest.Builder rb = HttpRequest.newBuilder(URI.create(raw + "/v1/morphs/" + self))
                         .timeout(Duration.ofSeconds(5))
                         .header("Content-Type", "application/json");
-                String rec = cfg.serviceTokens.get(raw); // токен записи этого зеркала (выдаётся автоматически)
+                String rec = cfg.serviceTokens.get(raw); // this mirror's record token (issued automatically)
                 if (rec != null && !rec.isEmpty()) rb.header("X-Lucario-Token", rec);
                 HttpRequest req = rb.PUT(HttpRequest.BodyPublishers.ofString(body)).build();
                 long t0 = System.currentTimeMillis();
@@ -166,14 +166,14 @@ public final class SyncClient {
                     } else {
                         ok.incrementAndGet();
                     }
-                    // Ответили все зеркала: успех — снимаем с ретрая; иначе назначаем ретрай.
-                    // Сравнение с pendingPublish нужно, чтобы не снять с ретрая более свежую
-                    // публикацию (игрок мог сменить образ, пока этот запрос летел).
+                    // Every mirror has answered: on success cancel the retry; otherwise schedule one.
+                    // Comparing with pendingPublish is needed so a newer publish is not taken
+                    // off the retry (the player may have changed morph while this request was in flight).
                     if (ok.get() + failed.get() == total) {
                         if (failed.get() > 0) {
                             nextPublishAttemptMs = System.currentTimeMillis() + RETRY_BACKOFF_MS;
                         } else if (key.equals(pendingPublish)) {
-                            pendingPublish = null; // доставлено во все зеркала
+                            pendingPublish = null; // delivered to every mirror
                         }
                     }
                 });
@@ -184,14 +184,14 @@ public final class SyncClient {
         }
     }
 
-    /** Вызывается AuthClient после успешной авторизации: сразу доталкиваем отложенную публикацию. */
+    /** Called by AuthClient after successful authorization: immediately pushes the pending publish through. */
     public static void onAuthSuccess() {
         nextPublishAttemptMs = 0L;
     }
 
     private static void logPublishFail(String mirror, Throwable t) {
         long now = System.currentTimeMillis();
-        if (now - lastPublishFailLogMs < 60_000L) return; // не спамим в лог
+        if (now - lastPublishFailLogMs < 60_000L) return; // do not spam the log
         synchronized (SyncClient.class) {
             if (now - lastPublishFailLogMs < 60_000L) return;
             lastPublishFailLogMs = now;
@@ -199,28 +199,28 @@ public final class SyncClient {
         LucarioMod.LOGGER.warn("[Lucario Sync] Зеркало {} не приняло образ: {}", mirror, t.toString());
     }
 
-    // ============================================================ игровой цикл
+    // ============================================================ game loop
 
-    /** Вызывается при подключении к миру (игрок ещё мог не заспавниться). */
+    /** Called when connecting to a world (the player may not have spawned yet). */
     public static void onJoin() {
         pendingApply = true;
-        nextCycleMs = 0L; // первый опрос — как можно раньше
-        nextResyncMs = 0L; // 1.7.7: первый полный забор — даже если WS уже открыт
-        nextHeartbeatMs = 0L; // расписание «пульса» начнётся заново (после публикации при входе)
-        // 1.7.7-debug4: самопрезентация билда — каждый лог теперь говорит, с какой версии
-        // он снят и с какими зеркалами клиент живёт (прекращаем гадать «debug2 или debug3?»).
+        nextCycleMs = 0L; // first poll - as early as possible
+        nextResyncMs = 0L; // 1.7.7: first full fetch - even if the WS is already open
+        nextHeartbeatMs = 0L; // the "heartbeat" schedule starts over (after the join publish)
+        // 1.7.7-debug4: build self-identification - every log line now states which version
+        // it was taken from and which mirrors the client lives with (no more guessing "debug2 or debug3?").
         SyncConfig cfg0 = SyncConfig.get();
         NetDebug.http("клиент LucarioMorph " + NetDebug.modVersion()
                 + " | синк: " + (cfg0.syncActive() ? "вкл" : "выкл")
                 + " | зеркал: " + cfg0.serviceUrls.size() + " " + cfg0.serviceUrls);
-        debugHealth(); // 1.7.7-debug2: стартовая точка «что видит сервер»
+        debugHealth(); // 1.7.7-debug2: starting point of "what the server sees"
     }
 
-    /** 1.7.7-debug4: WS только что открылся. Если полный забор уже был в последние 30 с
-     *  (обычный цикл при входе — всегда успевает раньше: WS ещё коннектится), а ресинк
-     *  к этому моменту должен был бы уйти немедленно (nextResyncMs в прошлом или 0) —
-     *  переносим его на полный интервал: снапшот текущего состояния и так придёт по WS
-     *  (watch → «state»), а свежий полный GET уже был. */
+    /** 1.7.7-debug4: the WS has just opened. If a full fetch happened within the last 30 s
+     *  (the regular cycle on join always beats it: the WS is still connecting) and the resync
+     *  would be due immediately at this point (nextResyncMs in the past or 0) -
+     *  push it out to the full interval: a snapshot of the current state arrives over the WS
+     *  anyway (watch -> "state"), and a fresh full GET has already happened. */
     static void onWsOpened() {
         long now = System.currentTimeMillis();
         if (now - lastFullFetchMs < 30_000L && nextResyncMs <= now) {
@@ -230,74 +230,74 @@ public final class SyncClient {
         }
     }
 
-    /** Вызывается каждый клиентский тик. */
+    /** Called every client tick. */
     public static void tick(Minecraft mc) {
         if (mc.level == null || mc.getConnection() == null) return;
         SyncConfig cfg = SyncConfig.get();
 
-        // Применяем запомненный образ, как только игрок заспавнился (UUID выдаёт сервер).
+        // Apply the remembered morph as soon as the player has spawned (the UUID comes from the server).
         if (pendingApply && mc.player != null) {
             pendingApply = false;
             String v = cfg.rememberVariant ? cfg.lastVariant : "";
             if (!v.isEmpty() && Variants.isValid(v)) {
                 ClientMorphs.set(mc.player.getUUID(), v);
-                publish(v); // без согласия (syncActive()) публикация просто сбросится
+                publish(v); // without consent (syncActive()) the publish is simply dropped
             } else {
-                // 1.7.3: морфа нет — публикуем маркер «мод есть» (постоянная регистрация)
+                // 1.7.3: no morph - publish the "mod present" marker (permanent registration)
                 publish(PRESENT_MARKER);
             }
         }
 
-        // Допубликация: зеркала были недоступны в момент смены образа.
+        // Follow-up publish: the mirrors were unreachable when the morph changed.
         String pending = pendingPublish;
         if (pending != null && System.currentTimeMillis() >= nextPublishAttemptMs) {
             nextPublishAttemptMs = System.currentTimeMillis() + RETRY_BACKOFF_MS;
             doPublish(pending);
         }
 
-        // Ретраи авторизации записи по расписанию (запускаются 401-м от зеркала).
+        // Scheduled record-authorization retries (triggered by a 401 from a mirror).
         AuthClient.tick();
 
-        // Всё, что ходит во внешний сервис (опрос и «пульс»), — только с явного согласия (opt-in).
+        // Everything that talks to the external service (polling and the "heartbeat") requires explicit opt-in consent.
         if (!cfg.syncActive() || cfg.serviceUrls.isEmpty()) return;
         long now = System.currentTimeMillis();
 
-        // «Пульс»: раз в heartbeatMinutes минут тихо перепубликуем текущий образ,
-        // чтобы запись не протухла на зеркалах с коротким TTL (0 — выключено).
-        // Упало — не страшно, повторим на следующем такте; ретраи тут не нужны.
-        // Такт пропускаем, если уже идёт допубликация (pendingPublish) — не дублируем PUT.
+        // "Heartbeat": every heartbeatMinutes minutes quietly re-publish the current morph
+        // so the record does not go stale on mirrors with a short TTL (0 - disabled).
+        // If it fails - no big deal, we retry on the next tick; no retries needed here.
+        // Skip the tick if a follow-up publish is already in progress (pendingPublish) - do not duplicate the PUT.
         int hb = cfg.heartbeatMinutes == null ? 0 : cfg.heartbeatMinutes;
         if (hb > 0) {
             if (nextHeartbeatMs == 0L) {
-                nextHeartbeatMs = now + hb * 60_000L; // старт расписания после публикации при входе
+                nextHeartbeatMs = now + hb * 60_000L; // schedule starts after the join publish
             } else if (now >= nextHeartbeatMs) {
                 nextHeartbeatMs = now + hb * 60_000L;
                 UUID self = selfUuid();
                 String current = self == null ? null : ClientMorphs.get(self);
                 if (pendingPublish == null) {
-                    // 1.7.3: пульс продлевает и маркер «мод есть» (дефолтный скин), не только морф
+                    // 1.7.3: the heartbeat also refreshes the "mod present" marker (default skin), not only morphs
                     doPublish(current == null || current.isEmpty() ? PRESENT_MARKER : current);
                 }
             }
         }
 
-        // 1.7.7: полный опрос — запасной путь. Пока WS открыт (EmoteSync), изменения
-        // морфов приходят пушем мгновенно; частый опрос здесь лишь дублировал бы их
-        // нагрузкой на сервис. Живой WS -> редкий страховочный ресинк, WS закрыт ->
-        // обычный опрос по syncIntervalSeconds.
+        // 1.7.7: the full poll is the fallback path. While the WS is open (EmoteSync), morph
+        // changes arrive instantly via push; frequent polling here would only duplicate them
+        // and load the service. Live WS -> rare safety-net resync, WS closed ->
+        // regular polling at syncIntervalSeconds.
         boolean wsUp = EmoteSync.wsOpen();
         if (wsUp) {
             if (now < nextResyncMs) return;
         } else if (now < nextCycleMs) return;
-        // Случайный разброс к интервалу, чтобы множество клиентов не били в зеркала
-        // синхронно: ±15% у обычного опроса, ±33% у страховки (итого 60–120 с).
+        // Random jitter added to the interval so many clients do not hit the mirrors
+        // in sync: +/-15% for the regular poll, +/-33% for the safety net (60-120 s total).
         long base = wsUp ? RESYNC_MS : cfg.syncIntervalSeconds * 1000L;
         long jitter = (long) ((ThreadLocalRandom.current().nextDouble() - 0.5) * base
                 * (wsUp ? 0.66 : 0.3));
         if (wsUp) nextResyncMs = now + base + jitter;
         else nextCycleMs = now + base + jitter;
 
-        debugHealth(); // 1.7.7-debug2: рядом с каждым циклом опроса — что видит сервер
+        debugHealth(); // 1.7.7-debug2: alongside every poll cycle - what the server sees
 
         UUID self = selfUuid();
         List<UUID> ids = new ArrayList<>();
@@ -306,18 +306,18 @@ public final class SyncClient {
             if (self == null || !self.equals(id)) ids.add(id);
         }
         if (ids.isEmpty()) return;
-        lastFullFetchMs = now; // 1.7.7-debug4: полный забор уходит прямо сейчас
+        lastFullFetchMs = now; // 1.7.7-debug4: the full fetch goes out right now
         for (int i = 0; i < ids.size(); i += BATCH) {
             fetchAndApply(mc, List.copyOf(ids.subList(i, Math.min(ids.size(), i + BATCH))), self);
         }
     }
 
-    /** 1.7.7-debug2: GET /health приоритетного зеркала — строчка в трассировку «что видит сервер».
-     *  conns в /health — ВСЕ TCP-соединения процесса (HTTP keep-alive + WS + мониторы +
-     *  чужие проверки), live — только WS-клиенты мода. Разница между conns и live (минус
-     *  свои HTTP-запросы, видно в трассировке) и есть чужие соединения; их имена (IP:порт)
-     *  показывает только лог сервера с CONN_DEBUG=1. Троттлинг 30 с, чтобы сам зонд
-     *  не раздувал conns и не выедал лимит запросов. */
+    /** 1.7.7-debug2: GET /health of the preferred mirror - a line into the "what the server sees" trace.
+     *  conns in /health counts ALL TCP connections of the process (HTTP keep-alive + WS + monitors +
+     *  third-party checks), live - only the mod's WS clients. The conns-live difference (minus
+     *  our own HTTP requests, visible in the trace) is exactly the third-party connections; their names (IP:port)
+     *  are shown only by the server log with CONN_DEBUG=1. Throttled to 30 s so the probe itself
+     *  does not inflate conns or eat the request quota. */
     static void debugHealth() {
         SyncConfig cfg = SyncConfig.get();
         if (!cfg.syncActive() || cfg.serviceUrls.isEmpty()) return;
@@ -337,7 +337,7 @@ public final class SyncClient {
         });
     }
 
-    /** Значение поля JSON-ответа строкой («?» — поля нет/ответ кривой). */
+    /** JSON response field value as a string ("?" - the field is missing/the response is malformed). */
     private static String jsonStr(JsonObject obj, String key) {
         if (obj == null || !obj.has(key) || obj.get(key).isJsonNull()) return "?";
         try {
@@ -369,7 +369,7 @@ public final class SyncClient {
         });
     }
 
-    /** Последовательно пробует зеркала, начиная с приоритетного; возвращает JSON первого ответившего. */
+    /** Tries the mirrors in sequence starting with the preferred one; returns the JSON of the first to answer. */
     private static CompletableFuture<JsonObject> fetchJson(
             List<String> mirrors, int idx, String pathAndQuery) {
         if (idx >= mirrors.size()) {
@@ -414,28 +414,28 @@ public final class SyncClient {
         return out;
     }
 
-    /** 1.7.0: зеркало, которое последним успешно ответило — EmoteSync подключает к нему WS-канал. */
+    /** 1.7.0: the mirror that answered successfully most recently - EmoteSync connects its WS channel to it. */
     static String preferredMirror() {
         return preferredMirror;
     }
 
-    /** 1.7.0: GET-запрос к первому ответившему зеркалу (кэш эмоутов — запасной канал чтения). */
+    /** 1.7.0: GET request to the first mirror that answered (the emote cache is the fallback read channel). */
     static CompletableFuture<JsonObject> fetch(String pathAndQuery) {
         return fetchJson(orderedMirrors(SyncConfig.get()), 0, pathAndQuery);
     }
 
-    /** Применяет ответы сервиса к кэшу рендера. Вызывается на главном потоке клиента. */
+    /** Applies service responses to the render cache. Called on the client's main thread. */
     private static void applyBatch(List<UUID> batch, JsonObject obj, UUID self) {
         for (UUID id : batch) {
-            if (id.equals(self)) continue; // свой образ управляется локально (MorphApplier)
+            if (id.equals(self)) continue; // our own morph is managed locally (MorphApplier)
             String key = id.toString();
             String v = "";
             if (obj != null && obj.has(key) && !obj.get(key).isJsonNull()) {
                 v = obj.get(key).getAsString();
             }
-            // 1.7.3: маркер «мод есть, морфа нет» для наблюдателя выглядит как «образа нет»
+            // 1.7.3: to an observer the "mod present, no morph" marker looks like "no morph"
             if (v.isEmpty() || PRESENT_MARKER.equals(v)) {
-                if (ClientMorphs.get(id) != null) ClientMorphs.set(id, ""); // образ снят на сервисе
+                if (ClientMorphs.get(id) != null) ClientMorphs.set(id, ""); // morph cleared on the service
             } else if (Variants.isValid(v)) {
                 if (!v.equals(ClientMorphs.get(id))) ClientMorphs.set(id, v);
             }
@@ -443,28 +443,28 @@ public final class SyncClient {
     }
 
     /**
-     * 1.7.2: применяет ЧУЖОЙ морф, пришедший по WebSocket (событие "morph" или поле
-     * "morphs" в снапшоте "state"). Логика ровно та же, что в {@link #applyBatch}:
-     * пустая строка или маркер {@link #PRESENT_MARKER} = записи-морфа нет (снять),
-     * неизвестный вариант отбрасывается белым списком, дедуп по текущему значению
-     * кэша. Свой UUID игнорируется — свой образ управляется локально и через
-     * публикацию. Вызывается на главном потоке.
+     * 1.7.2: applies SOMEONE ELSE'S morph that arrived over WebSocket (the "morph" event
+     * or the "morphs" field in the "state" snapshot). The logic is exactly the same as in
+     * {@link #applyBatch}: an empty string or the {@link #PRESENT_MARKER} marker = no morph
+     * record (clear it), an unknown variant is dropped by the whitelist, dedup against
+     * the current cache value. Our own UUID is ignored - our own morph is managed locally
+     * and through publishing. Called on the main thread.
      */
     static void applyRemoteMorph(UUID id, String variant) {
         UUID self = selfUuid();
         if (self == null || id.equals(self)) return;
         if (variant.isEmpty() || PRESENT_MARKER.equals(variant)) {
-            if (ClientMorphs.get(id) != null) ClientMorphs.set(id, ""); // образ снят на сервисе
+            if (ClientMorphs.get(id) != null) ClientMorphs.set(id, ""); // morph cleared on the service
         } else if (Variants.isValid(variant)) {
             if (!variant.equals(ClientMorphs.get(id))) ClientMorphs.set(id, variant);
         }
     }
 
-    // ============================================================ HTTP-помощники
+    // ============================================================ HTTP helpers
 
     /**
-     * BodySubscriber с потолком размера: как только сервер отдаёт больше {@code maxBytes},
-     * соединение обрывается с ошибкой (вместо молчаливого буферизации гигабайтов).
+     * A BodySubscriber with a size ceiling: as soon as the server sends more than {@code maxBytes},
+     * the connection is aborted with an error (instead of silently buffering gigabytes).
      */
     private static HttpResponse.BodySubscriber<String> boundedBody(long maxBytes) {
         return new HttpResponse.BodySubscriber<>() {
@@ -515,8 +515,8 @@ public final class SyncClient {
     }
 
     static HttpResponse.BodyHandler<String> boundedHandler() {
-        // BodyHandler — функциональный интерфейс: на каждый ответ выдаём свежий subscriber
-        // (используется и AuthClient — лимит действует на все ответы).
+        // BodyHandler is a functional interface: hand out a fresh subscriber for every response
+        // (AuthClient uses it too - the limit applies to all responses).
         return info -> boundedBody(MAX_FETCH_BYTES);
     }
 

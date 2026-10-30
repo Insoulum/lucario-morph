@@ -1,6 +1,6 @@
 package dev.lucario.client;
 
-/** Дополнительные данные, которые мы цепляем к PlayerEntityRenderState через миксин. */
+/** Extra data we attach to PlayerEntityRenderState via a mixin. */
 public interface LucarioStateAccess {
     String lucario$getVariant();
 
@@ -10,75 +10,75 @@ public interface LucarioStateAccess {
 
     void lucario$setSprinting(boolean sprinting);
 
-    /** Прогресс взмаха рукой 0..1 (удар / ломание блока / использование); 0 = не машет. */
+    /** Arm swing progress 0..1 (attack / block breaking / item use); 0 = not swinging. */
     float lucario$getSwing();
 
     void lucario$setSwing(float progress);
 
-    /** true — текущий взмах является реальной атакой (ЛКМ); включает оверлей удара (скрутка корпуса, наклон груди, кулак, замах второй руки). */
+    /** true - the current swing is a real attack (left click); enables the strike overlay (body twist, chest lean, fist, off-arm backswing). */
     boolean lucario$isStrike();
 
     void lucario$setStrike(boolean strike);
 
-    /** true — машет правой рукой (с учётом ведущей руки и того, какой рукой бьют). */
+    /** true - the right arm is swinging (accounting for the main arm and which hand strikes). */
     boolean lucario$isSwingRight();
 
     void lucario$setSwingRight(boolean right);
 
-    /** Игрок сейчас летит на элитрах. */
+    /** The player is currently gliding with an elytra. */
     boolean lucario$isGliding();
 
     void lucario$setGliding(boolean gliding);
 
-    /** В слоте нагрудника лежат элитры (рисуем крылья на спине). */
+    /** An elytra is in the chest slot (draw the wings on the back). */
     boolean lucario$hasElytra();
 
     void lucario$setHasElytra(boolean elytra);
 
-    /** Текстура элитр игрока (элитры/плащ из его скина); null — обычная ванильная. */
+    /** The player's elytra texture (elytra/cape from their skin); null - the default vanilla one. */
     net.minecraft.resources.Identifier lucario$getElytraTexture();
 
     void lucario$setElytraTexture(net.minecraft.resources.Identifier texture);
 
-    /** Игрок сейчас едет верхом (лодка, вагонетка, свинья и т.п.) — включаем позу сидения. */
+    /** The player is currently riding (boat, minecart, pig, etc.) - enable the sitting pose. */
     boolean lucario$isRiding();
 
     void lucario$setRiding(boolean riding);
 
     /**
-     * Личный экземпляр модели этого игрока (1.4.3). Разрешается один раз в extractRenderState,
-     * где доступна сущность (и её UUID): у каждого игрока свои кости — позы одинаковых образов
-     * больше не пересекаются при отложенной отрисовке.
+     * This player's personal model instance (1.4.3). Resolved once in extractRenderState,
+     * where the entity (and its UUID) is available: each player gets their own bones - poses
+     * of identical morphs no longer overlap during deferred rendering.
      */
     LucarioModel lucario$getModel();
 
     void lucario$setModel(LucarioModel model);
 
-    /** Сглаженный вес боевой стойки 0..1 (игрока недавно ударили или он сам атаковал). */
+    /** Smoothed battle stance weight 0..1 (the player was recently hurt or attacked themselves). */
     float lucario$getBattleBlend();
 
     void lucario$setBattleBlend(float blend);
 
-    /** Сглаженный вес танца 0..1 (локальный эмоут). */
+    /** Smoothed dance weight 0..1 (local emote). */
     float lucario$getDanceBlend();
 
     void lucario$setDanceBlend(float blend);
 
-    /** Сглаженный вес позы полёта на элитрах 0..1 (для перехода между позами). */
+    /** Smoothed elytra flight pose weight 0..1 (for transitions between poses). */
     float lucario$getGlideBlend();
 
     void lucario$setGlideBlend(float blend);
 
     /**
-     * 1.7.0: эмоут ИМЕННО ЭТОГО игрока: короткое имя анимации или {@code PreviewState.TPOSE};
-     * null — эмоута нет. Свои — из DanceState/PreviewState, чужие — из RemoteEmotes.
-     * Раньше рендерер читал глобальные состояния — теперь позы разных игроков независимы.
+     * 1.7.0: THIS player's emote: the short animation name or {@code PreviewState.TPOSE};
+     * null - no emote. Own ones come from DanceState/PreviewState, others' from RemoteEmotes.
+     * The renderer used to read global states - now different players' poses are independent.
      */
     String lucario$getEmoteAnim();
 
     void lucario$setEmoteAnim(String anim);
 
-    /** 1.7.0: часы эмоута этого игрока в секундах (старт — в момент включения, фриз — при стопе). */
+    /** 1.7.0: this player's emote clock in seconds (starts when toggled on, freezes on stop). */
     double lucario$getEmoteTime();
 
     void lucario$setEmoteTime(double seconds);

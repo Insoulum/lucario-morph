@@ -9,9 +9,9 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.ModifyArg;
 
 /**
- * В приседе Лукарио/Риолу/Мега перебирают ногами немного чаще: анимация ходьбы в приседе
- * проигрывается на замедленном взмахе (см. CROUCH_WALK_BLEND в LucarioRenderer), поэтому
- * сам темп шага в ванильном обновлении конечностей компенсируем множителем.
+ * When crouching, Lucario/Riolu/Mega move their legs slightly faster: the crouch walk animation
+ * is played on a slowed-down swing (see CROUCH_WALK_BLEND in LucarioRenderer), so the
+ * step pace in the vanilla limb update is compensated with a multiplier.
  */
 @Mixin(LivingEntity.class)
 public abstract class LivingEntityMixin {

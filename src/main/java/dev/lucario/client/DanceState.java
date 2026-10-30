@@ -29,10 +29,10 @@ import net.minecraft.world.phys.Vec2;
  * if it was in first person, and switching back on stop; taking damage also
  * cancels the emote (checked in {@link #tick} and in the render-state mixin).
  * <p>
- * 1.7.0: эмоут СИНХРОНИЗИРУЕТСЯ ({@link EmoteSync}): старт и стоп публикуются на
- * сервис синхронизации (PUT во все зеркала, мгновенно), а чужие эмоуты приходят
- * обратно по WebSocket-каналу. Локальное поведение не изменилось: если синхронизация
- * выключена или зеркал нет — эмоут работает как раньше, только у себя.
+ * 1.7.0: the emote is SYNCHRONIZED ({@link EmoteSync}): start and stop are published to
+ * the sync service (PUT to every mirror, instantly), and other players' emotes arrive
+ * back over the WebSocket channel. Local behavior is unchanged: with synchronization
+ * off or no mirrors configured, the emote works as before, locally only.
  */
 @Environment(EnvType.CLIENT)
 public final class DanceState {
@@ -74,15 +74,15 @@ public final class DanceState {
          mc.options.setCameraType(CameraType.THIRD_PERSON_BACK);
          switchedCamera = true;
       }
-      // 1.7.7-debug4: событие старта — рядом с ним в трассировке появится и его PUT.
+      // 1.7.7-debug4: start event - its PUT will show up next to it in the trace.
       NetDebug.http("эмоут \"" + PreviewState.anim() + "\": старт (клавиша/превью)");
-      // 1.7.0: публикуем старт эмоута (внутри — проверка согласия на синхронизацию)
+      // 1.7.0: publish the emote start (checks the sync consent internally)
       EmoteSync.publishStart(PreviewState.anim());
    }
 
    /**
-    * 1.7.7-debug4: стоп с причиной — причина попадает в трассировку рядом с соответствующим PUT.
-    * Все прежние вызовы stop() переведены на перегрузку со строкой-причиной.
+    * 1.7.7-debug4: stop with a reason - the reason lands in the trace next to the matching PUT.
+    * All former stop() call sites were moved over to the overload with a reason string.
     */
    public static void stop(String cause) {
       boolean wasActive = active();
@@ -104,8 +104,8 @@ public final class DanceState {
          cameraBefore = null;
       }
 
-      // 1.7.0: стоп тоже публикуем — и мгновенно. Даже если стоп-событие потеряется,
-      // TTL сервиса погасит эмоут максимум за ~30 с (и пришлёт его как обычный стоп).
+      // 1.7.0: the stop is published too - and instantly. Even if the stop event gets lost,
+      // the service TTL expires the emote within at most ~30 s (and delivers it as a regular stop).
       if (wasActive) {
          NetDebug.http("эмоут: стоп (" + cause + ")");
          EmoteSync.publishStop();

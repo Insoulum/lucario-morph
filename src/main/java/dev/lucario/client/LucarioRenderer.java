@@ -23,55 +23,55 @@ import org.joml.Vector3f;
 import java.util.Map;
 
 /**
- * Рисует Лукарио/Риолу вместо ванильной модели игрока: поза из Bedrock-анимаций + поворот головы,
- * плюс то, чего в анимациях нет: приседание, взмах рукой (удар/ломание блока), предметы в руках и рука от первого лица.
- * В 26.x рендер сабмит-пайплайн: вместо прямого рисования через VertexConsumerProvider мы ставим
- * позы костям и отправляем модель через SubmitNodeCollector.submitModel / submitModelPart / ItemStackRenderState.submit.
+ * Draws Lucario/Riolu in place of the vanilla player model: pose from Bedrock animations + head rotation,
+ * plus what the animations don't cover: sneaking, arm swing (punch/block breaking), held items and
+ * the first-person arm. In 26.x rendering is a submit pipeline: instead of drawing directly through
+ * VertexConsumerProvider, we pose the bones and submit the model via SubmitNodeCollector.
  */
 @Environment(EnvType.CLIENT)
 public final class LucarioRenderer {
-    /** Один полный цикл шага у ванильных ног: cos(limbAngle * 0.6662). */
+    /** One full stride cycle of the vanilla legs: cos(limbAngle * 0.6662). */
     private static final double STRIDE_CYCLE = 2.0 * Math.PI / 0.6662;
     private static final double BLINK_PERIOD_SECONDS = 4.0;
 
-    // ---- настройки (можно подкрутить под вкус) ----
-    /** Во сколько раз рука от первого лица крупнее, чем "честный" масштаб модели (рука Лукарио тоньше руки Стива). */
+    // ---- settings (tweak to taste) ----
+    /** How much bigger the first-person arm is than the "honest" model scale (Lucario's arm is thinner than Steve's). */
     private static final float FIRST_PERSON_ARM_SCALE = 1.8f;
-    /** Насколько градусов рука от первого лица прижата вниз/к телу относительно позы покоя (убирает "разлёт" локтей). */
+    /** How many degrees the first-person arm is pressed down/toward the body from the rest pose (stops "elbow spread"). */
     private static final float FIRST_PERSON_ARM_ROLL_DEG = 20f;
-    /** Смещение предмета от запястья вдоль руки (вниз), в единицах модели Bedrock: Лукарио/Мега, Риолу. */
+    /** Item offset from the wrist along the arm (downward), in Bedrock model units: Lucario/Mega, Riolu. */
     private static final float HAND_ITEM_OFFSET_LUCARIO = 4.5f;
     private static final float HAND_ITEM_OFFSET_RIOLU = 3.0f;
-    /** Размер предмета в руке относительно обычного (1.0 = как у Стива). */
+    /** Held item size relative to normal (1.0 = same as Steve). */
     private static final float HELD_ITEM_SCALE_LUCARIO = 0.6f;
     private static final float HELD_ITEM_SCALE_MEGA = 0.55f;
     private static final float HELD_ITEM_SCALE_RIOLU = 0.45f;
-    /** Сдвиг предмета к телу (к центру модели), в единицах Bedrock: Лукарио/Мега, Риолу. */
+    /** Item shift toward the body (toward the model center), in Bedrock units: Lucario/Mega, Riolu. */
     private static final float HELD_ITEM_INWARD_LUCARIO = 2.5f;
     private static final float HELD_ITEM_INWARD_RIOLU = 1.5f;
-    /** Размер крыльев элитр относительно обычного и положение на спине (единицы Bedrock от кости груди). */
+    /** Elytra wing size relative to normal and position on the back (Bedrock units from the chest bone). */
     private static final float ELYTRA_SCALE_LUCARIO = 0.55f;
     private static final float ELYTRA_SCALE_RIOLU = 0.33f;
     private static final float ELYTRA_UP_LUCARIO = 4.0f, ELYTRA_BACK_LUCARIO = 1.5f;
     private static final float ELYTRA_BACK_MEGA = 1.7f;
     private static final float ELYTRA_UP_RIOLU = 3.0f, ELYTRA_BACK_RIOLU = 0.65f;
-    /** Руки вперёд при плавании/ползании/полёте: поворот плеча (рад) и сведение рук к оси тела. */
+    /** Arms forward when swimming/crawling/gliding: shoulder pitch (rad) and pulling the arms toward the body axis. */
     private static final float ARMS_FORWARD_PITCH = -3.0f;
-    private static final float ARMS_FORWARD_ROLL = 0.25f; // рад, разведение рук в стороны (чтобы не пересекали голову)
-    /** Насколько в приседе медленнее машут ногами при ходьбе (доля от обычного взмаха). */
+    private static final float ARMS_FORWARD_ROLL = 0.25f; // rad, spreading the arms apart (so they don't clip the head)
+    /** How much slower the legs swing while walking when sneaking (a fraction of the normal swing). */
     private static final float CROUCH_WALK_BLEND = 0.43f;
-    /** Циклов шага в секунду у ног во время полёта на элитрах. */
+    /** Stride cycles per second of the legs during elytra flight. */
     private static final double FLIGHT_LEG_RATE = 1.25;
-    /** На сколько единиц Bedrock Риолу приподнят в лодке/вагонетке и т.п. (иначе выглядывает из сиденья едва ли). */
+    /** How many Bedrock units Riolu is lifted in a boat/minecart etc. (otherwise it would barely peek over the seat). */
     private static final float RIOLU_RIDE_LIFT = 3.0f;
-    /** На сколько пикселей (1/16 блока) опустить модель в "наземных" позах (стоя/ходьба),
-     *  чтобы подошвы не "левитировали" над землёй. Поднимите значение, если модель всё ещё парит,
-     *  уменьшите или сделайте 0, если ступни начали утопать. В приседе не применяется — там своя
-     *  точная посадка (crouchDrop), а общий сдвиг топил сложенные ступни в землю. */
+    /** How many pixels (1/16-block pixels) to lower the model in "ground" poses (standing/walking)
+     *  so the soles don't "hover" above the ground. Raise the value if the model still floats,
+     *  lower it or set it to 0 if the feet start sinking. Not applied while sneaking -- that has its own
+     *  precise seating (crouchDrop); the shared shift would sink the folded feet into the ground. */
     private static final float GROUND_SINK_PX = 0.5f;
 
     private static final Identifier ELYTRA_TEXTURE = Identifier.withDefaultNamespace("textures/entity/equipment/wings/elytra.png");
-    /** Размах руки при ударе (рад) и скручивание корпуса. */
+    /** Arm swing extent on a strike (rad) and torso twist. */
     private static final float SWING_ARM_PITCH = 1.2f;
     private static final float SWING_BODY_TWIST = 0.2f;
     // 1.6.0: extra strike flourishes (scaled by the vanilla swing bell curve)
@@ -86,14 +86,14 @@ public final class LucarioRenderer {
 
     private LucarioRenderer() {}
 
-    // ------------------------------------------------------------------ третье лицо / другие игроки
+    // ------------------------------------------------------------------ third person / other players
 
     public static void render(LivingEntityRenderState state, LucarioStateAccess access,
                               PoseStack matrices, SubmitNodeCollector collector, int light) {
         if (state.isInvisible) return;
         String variantKey = access.lucario$getVariant();
-        // Модель своя у каждого игрока (1.4.3): у одинаковых образов больше нет общих костей,
-        // и поза одного не переписывает позу другого при отложенной отрисовке сабмитов.
+        // Each player has their own model (1.4.3): identical morphs no longer share bones,
+        // and one player's pose can't overwrite another's when the submits are drawn later.
         LucarioModel model = access.lucario$getModel();
         if (model == null) return;
 
@@ -117,19 +117,19 @@ public final class LucarioRenderer {
         }
         matrices.scale(-1.0F, -1.0F, 1.0F);
         matrices.scale(LucarioModel.RENDER_SCALE, LucarioModel.RENDER_SCALE, LucarioModel.RENDER_SCALE);
-        // y_java = 24 - y_bedrock; подошва в y_bedrock = feetY должна оказаться на земле
+        // y_java = 24 - y_bedrock; the sole at y_bedrock = feetY must end up on the ground
         matrices.translate(0.0F, -(24.0F - model.feetY) / 16.0F, 0.0F);
-        // Риолу в транспорте (лодка, вагонетка и т.д.) сидит чуть выше, чтобы не тонусть в сиденье
+        // Riolu in a vehicle (boat, minecart, etc.) sits a bit higher so it doesn't sink into the seat
         boolean riding = !state.hasPose(Pose.SLEEPING) && !gliding && access.lucario$isRiding();
-        // "Наземные" позы (стоя/ходьба): чуть опускаем модель, чтобы не левитировала над землёй.
-        // В плавании модель повёрнута горизонтально, в транспорте своя посадка, а в приседе
-        // crouchDrop уже сажает подошвы точно на землю — лишний сдвиг топил ноги в землю.
-        // 1.6.0: в полёте сдвиг плавно уходит вместе с glide-переходом (умножен на 1 - glideW).
+        // "Ground" poses (standing/walking): lower the model a bit so it doesn't hover above the ground.
+        // While swimming the model is rotated horizontal, riding has its own seating, and while sneaking
+        // crouchDrop already puts the soles exactly on the ground -- the extra shift sank the legs into the ground.
+        // 1.6.0: in flight the shift fades out smoothly with the glide transition (multiplied by 1 - glideW).
         boolean sleeping = state.hasPose(Pose.SLEEPING);
         boolean crouching = state.hasPose(Pose.CROUCHING);
         if (GROUND_SINK_PX != 0.0F && !sleeping && !riding && !crouching && !swimmingPose) {
-            // после scale(-1,-1,1) локальный +Y смотрит вниз; делим на RENDER_SCALE, чтобы константа
-            // означала видимые пиксели мира (1/16 блока), а не единицы масштабированного фрейма
+            // after scale(-1,-1,1) the local +Y points down; divide by RENDER_SCALE so the constant
+            // means visible world pixels (1/16-block pixels), not units of the scaled frame
             matrices.translate(0.0F, GROUND_SINK_PX / 16.0F / LucarioModel.RENDER_SCALE * (1.0F - glideW), 0.0F);
         }
         if (riolu && riding) {
@@ -140,7 +140,7 @@ public final class LucarioRenderer {
         int overlay = LivingEntityRenderer.getOverlayCoords(state, 0.0F);
         collector.submitModel(model.entityModel, state, matrices, texture, light, overlay, state.outlineColor);
 
-        // предметы в руках — в той же системе координат, что и модель
+        // held items -- in the same coordinate system as the model
         float itemScale = riolu ? HELD_ITEM_SCALE_RIOLU : (Variants.isMega(variantKey) ? HELD_ITEM_SCALE_MEGA : HELD_ITEM_SCALE_LUCARIO);
         float itemOffset = riolu ? HAND_ITEM_OFFSET_RIOLU : HAND_ITEM_OFFSET_LUCARIO;
         float itemInward = riolu ? HELD_ITEM_INWARD_RIOLU : HELD_ITEM_INWARD_LUCARIO;
@@ -148,7 +148,7 @@ public final class LucarioRenderer {
             renderHeldItem(model, "hand_right", true, armed.rightHandItemState, itemScale, itemOffset, itemInward, matrices, collector, light, overlay, state.outlineColor);
             renderHeldItem(model, "hand_left", false, armed.leftHandItemState, itemScale, itemOffset, itemInward, matrices, collector, light, overlay, state.outlineColor);
         }
-        // Элитры рисуем всем, кроме образов со "своими" крыльями на спине (костюмный Лукарио).
+        // The elytra is drawn for everyone except morphs with their "own" back wings (the costume Lucario).
         if (access.lucario$hasElytra() && !Variants.hidesElytra(variantKey)) {
             renderElytra(model, riolu, Variants.isMega(variantKey), gliding, state.hasPose(Pose.CROUCHING), access.lucario$getElytraTexture(), state, matrices, collector, light, overlay);
         }
@@ -164,9 +164,9 @@ public final class LucarioRenderer {
     }
 
     /**
-     * Раскладывает анимации/позы по костям модели. Чистая функция от состояния: вызывается и на сабмите
-     * (чтобы цепочки предметов/элитр посчитали матрицы по свежим позам), и из setupAnim модели —
-     * пайплайн вызывает его при отрисовке сабмита, поэтому каждый игрок рисуется в своей позе.
+     * Applies the animations/poses to the model's bones. A pure function of the state: called both at submit time
+     * (so the held-item/elytra chains compute their matrices from fresh poses) and from the model's setupAnim --
+     * the pipeline calls it when drawing the submit, so every player is drawn in their own pose.
      */
     static void pose(LucarioModel m, LivingEntityRenderState s, LucarioStateAccess access) {
         boolean sprinting = access.lucario$isSprinting();
@@ -177,9 +177,9 @@ public final class LucarioRenderer {
         boolean dying = s.deathTime > 0.0F && faintAnim != null;
         boolean sleeping = !dying && s.hasPose(Pose.SLEEPING) && m.animation("sleep") != null;
         boolean gliding = !sleeping && !dying && access.lucario$isGliding();
-        // плавание, ползание и полёт: обе руки вытянуты вперёд (по ходу движения)
+        // swimming, crawling and gliding: both arms stretched forward (in the direction of travel)
         boolean armsForward = !sleeping && !dying && (gliding || s.hasPose(Pose.SWIMMING));
-        // поездка верхом (лодка, вагонетка, свинья...): сидячая поза вместо стойки
+        // riding (boat, minecart, pig...): a sitting pose instead of the stance
         boolean riding = !sleeping && !dying && !gliding && access.lucario$isRiding();
         boolean crouching = !sleeping && !dying && !water && !riding && s.hasPose(Pose.CROUCHING);
 
@@ -201,7 +201,7 @@ public final class LucarioRenderer {
                     : m.animation("ground_walk");
         }
         if (gliding) {
-            // Полёт: тело вытянуто по ходу движения, ноги сзади продолжают перебирать (как в ванилле)
+            // Gliding: body stretched along the direction of travel, legs behind keep stepping (like vanilla).
             idle = m.animation("ground_idle") != null ? m.animation("ground_idle") : idle;
             move = first(m, "ground_walk");
         }
@@ -219,9 +219,9 @@ public final class LucarioRenderer {
         // 1.6.0: smoothed animation weights (see MotionBlend) — poses crossfade instead of snapping.
         float glideW = Mth.clamp(access.lucario$getGlideBlend(), 0.0F, 1.0F);
         float danceW = Mth.clamp(access.lucario$getDanceBlend(), 0.0F, 1.0F);
-        // 1.7.0: эмоут — пер-игроковый: имя и часы приходят в состоянии рендера (свой —
-        // из DanceState/PreviewState, чужие — из RemoteEmotes через сервис синхронизации).
-        // T-поза (сырой риг) тоже едет в этом поле. null — эмоута нет.
+        // 1.7.0: the emote is per-player: the name and clock arrive in the render state (own --
+        // from DanceState/PreviewState, other players' -- from RemoteEmotes via the sync service).
+        // The T-pose (raw rig) is also carried in this field. null -- no emote.
         String emoteName = access.lucario$getEmoteAnim();
         boolean tpose = emoteName != null && PreviewState.TPOSE.equals(emoteName);
         BedrockAnimation dance = tpose || emoteName == null ? null : m.animation(emoteName);
@@ -231,7 +231,7 @@ public final class LucarioRenderer {
 
         // 1.6.1: the emote runs on its own clock (starts at the toggle, freezes on stop)
         // instead of the entity's global age, so it always begins from its first keyframe.
-        // 1.7.0: часы — тоже пер-игроковые (у чужих стартуют в момент получения события).
+        // 1.7.0: the clock is per-player too (for remote players it starts when the event arrives).
         double danceTime = access.lucario$getEmoteTime();
 
         // Patch 11: battle stance lingers ~2s after attacking or being hurt.
@@ -260,7 +260,7 @@ public final class LucarioRenderer {
         float headYaw = Mth.clamp(s.yRot, -50.0f, 50.0f);
         float headPitch = Mth.clamp(s.xRot, -45.0f, 45.0f);
 
-        // взмах рукой: плечо машет вперёд, корпус слегка скручивается (как у ванильного игрока)
+        // arm swing: the shoulder swings forward and the torso twists slightly (like the vanilla player)
         float swing = access.lucario$getSwing();
         boolean swinging = swing > 0f && swing < 1f && !sleeping && !dying;
         // 1.6.4: "strike" marks a REAL attack (left click). A plain vanilla swing
@@ -301,11 +301,11 @@ public final class LucarioRenderer {
             ModelPart part = e.getValue();
             float[] b = m.base.get(name);
 
-            // руки вперёд: берём для всей цепочки руки позу покоя без анимации плавания/ходьбы
+            // arms forward: give the whole arm chain the rest pose without the swimming/walking animation
             boolean legChain = isLegChain(name);
             boolean armChain = armsForward && isArmChain(name);
             BedrockAnimation boneIdle = armChain ? armIdle : idle;
-            // в полёте анимация шага двигает только цепочку ног, в остальном — как обычно
+            // in flight the walk animation drives only the leg chain; otherwise, as usual
             float bw = !armChain && (!gliding || legChain) ? w : 0f;
 
             // base/idle pose — the battle stance crossfades over it below
@@ -365,10 +365,10 @@ public final class LucarioRenderer {
             if (crouching) {
                 Float extra = m.crouchPitch.get(name);
                 if (extra != null) pitch += extra;
-                if (name.equals("body")) py -= m.crouchDrop; // y у Bedrock вверх: минус = ниже
+                if (name.equals("body")) py -= m.crouchDrop; // Bedrock y points up: minus = lower
             }
 
-            // сидя: бёдра и колени раскладываются в прямые вытянутые ноги
+            // sitting: the hips and knees unfold into straight, extended legs
             if (riding) {
                 Float sit = m.sitPitch.get(name);
                 if (sit != null) pitch += sit;
@@ -402,8 +402,8 @@ public final class LucarioRenderer {
                     extraPitch += OFF_ARM_BACKSWING * followArc;
                 }
                 if (extraPitch != 0f || extraRoll != 0f) {
-                    // Рука у Лукарио лежит "в стороне" (поворот по Z), поэтому качаем её вокруг оси X родителя:
-                    // собираем итоговый поворот кватернионом и переводим обратно в углы ModelPart.
+                    // Lucario's arm rests "off to the side" (a Z rotation), so we swing it around the parent's X axis:
+                    // compose the final rotation with a quaternion and convert it back to ModelPart angles.
                     Quaternionf q = new Quaternionf().rotationX(extraPitch)
                             .mul(new Quaternionf().rotationZ(extraRoll))
                             .mul(new Quaternionf().rotationZYX(roll, yaw, pitch));
@@ -414,7 +414,7 @@ public final class LucarioRenderer {
                 }
             }
 
-            // y у Bedrock направлен вверх, у Java-модели — вниз
+            // y points up in Bedrock and down in the Java model
             part.setPos(b[0] + px, b[1] - py, b[2] + pz);
             part.setRotation(pitch, yaw, roll);
         }
@@ -428,7 +428,7 @@ public final class LucarioRenderer {
         return n.startsWith("leg_") || n.startsWith("foot_");
     }
 
-    /** Повторяет то, что делает ModelPart.render: переносит матрицу в систему координат кости. */
+    /** Reproduces what ModelPart.render does: moves the matrix into the bone's coordinate system. */
     private static void applyChain(LucarioModel m, String bone, PoseStack matrices) {
         for (String n : m.chainTo(bone)) {
             ModelPart p = m.parts.get(n);
@@ -439,13 +439,13 @@ public final class LucarioRenderer {
         }
     }
 
-    // ------------------------------------------------------------------ предметы в руках
+    // ------------------------------------------------------------------ held items
 
     /**
-     * Рисует предмет в кисти (hand_right / hand_left). Идём по цепочке костей от корня до кисти, повторяя то, что
-     * делает ModelPart.render, а дальше встаём так же, как ванильный слой предметов встаёт на руку Стива:
-     * "рука смотрит вдоль +Y, вперёд — минус Z". У Лукарио рука в покое смотрит вдоль -X (правая) / +X (левая),
-     * поэтому добавляем поворот на 90 градусов вокруг Z.
+     * Draws an item in the hand (hand_right / hand_left). Walk the bone chain from the root to the hand, repeating what
+     * ModelPart.render does, then orient the same way the vanilla item layer orients on Steve's arm:
+     * "the arm points along +Y, forward is -Z". Lucario's arm at rest points along -X (right) / +X (left),
+     * so we add a 90 degree rotation around Z.
      */
     private static void renderHeldItem(LucarioModel m, String handBone, boolean right, ItemStackRenderState item,
                                        float itemScale, float offsetUnits, float inwardUnits,
@@ -454,16 +454,16 @@ public final class LucarioRenderer {
         if (!m.parts.containsKey(handBone)) return;
 
         matrices.pushPose();
-        // сначала сдвиг в системе координат всей модели: к центру тела (правая рука — в сторону +X, левая — в -X)
+        // first, shift toward the body center in the whole model's coordinate system (right arm: +X, left: -X)
         matrices.translate((right ? 1.0F : -1.0F) * inwardUnits / 16.0F, 0.0F, 0.0F);
         applyChain(m, handBone, matrices);
-        // от запястья вниз по руке к ладони
+        // from the wrist down the arm toward the palm
         matrices.translate((right ? -1.0F : 1.0F) * offsetUnits / 16.0F, 0.0F, 0.0F);
-        // вернуть предмету обычный размер (модель масштабирована RENDER_SCALE) и уменьшить под размер персонажа
+        // restore the item's normal size (the model is scaled by RENDER_SCALE) and shrink it to the character's size
         float k = itemScale / LucarioModel.RENDER_SCALE;
         matrices.scale(k, k, k);
         matrices.rotateDegrees(Axis.ZP, right ? 90.0F : -90.0F);
-        // дальше — как в ванильном слое предметов
+        // from here on, as in the vanilla item layer
         matrices.rotateDegrees(Axis.XP, -90.0F);
         matrices.rotateDegrees(Axis.YP, 180.0F);
         matrices.translate(0.0F, 0.125F, 0.0F);
@@ -471,11 +471,11 @@ public final class LucarioRenderer {
         matrices.popPose();
     }
 
-    // ------------------------------------------------------------------ элитры
+    // ------------------------------------------------------------------ elytra
 
-    /** Крылья элитр на спине (геометрия и текстура ванильные); при полёте раскрываются.
-     *  Кости крыльев — из личного набора модели (m.elytraLeft/Right), чтобы у двух игроков
-     *  в элитрах позы крыльев тоже не "перетекали" друг в друга. */
+    /** Elytra wings on the back (vanilla geometry and texture); they spread open in flight.
+     *  The wing bones come from the model's own set (m.elytraLeft/Right), so two players
+     *  wearing elytra don't have their wing poses "bleed" into each other either. */
     private static void renderElytra(LucarioModel m, boolean riolu, boolean mega, boolean gliding, boolean crouching, Identifier texture,
                                      LivingEntityRenderState state, PoseStack matrices, SubmitNodeCollector collector, int light, int overlay) {
         String attach = m.parts.containsKey("chest") ? "chest" : "torso";
@@ -507,17 +507,17 @@ public final class LucarioRenderer {
         matrices.popPose();
     }
 
-    // ------------------------------------------------------------------ рука от первого лица
+    // ------------------------------------------------------------------ first-person arm
 
     /**
-     * Вызывается вместо ванильного renderRightHand/renderLeftHand. В этот момент матрица уже стоит так, что рука Стива
-     * (с плечом в точке (-5, 2, 0) / (5, 2, 0) пикселей) лежит правильно с учётом качания, взмаха и т.п.
-     * Мы ставим плечо Лукарио в ту же точку и сабмитим только цепочку руки (плечо -> предплечье -> кисть -> пальцы).
+     * Called instead of the vanilla renderRightHand/renderLeftHand. At this point the matrix is already set so Steve's
+     * arm (shoulder at (-5, 2, 0) / (5, 2, 0) pixels) lies correctly with view bobbing, arm swing, etc. taken into account.
+     * We put Lucario's shoulder at the same point and submit only the arm chain (shoulder -> forearm -> hand -> fingers).
      */
     public static void renderFirstPersonArm(PoseStack matrices, SubmitNodeCollector collector, int light,
                                             String variantKey, boolean right) {
-        // Отдельный экземпляр (не личная модель игрока): кости руки не пересекаются ни с чьими сабмитами,
-        // поза ставится здесь и читается при отрисовке этой же руки.
+        // A separate instance (not the player's personal model): the arm bones don't overlap anyone else's submits;
+        // the pose is set here and read when this same arm is drawn.
         LucarioModel m = LucarioModels.getFirstPerson(Variants.baseOf(variantKey));
         if (m == null) return;
         ModelPart shoulder = m.parts.get(right ? "arm_right" : "arm_left");
@@ -538,7 +538,7 @@ public final class LucarioRenderer {
         matrices.popPose();
     }
 
-    /** Поза покоя (ground_idle) без движения и мигания — для руки от первого лица. */
+    /** Rest pose (ground_idle) without movement or blinking -- for the first-person arm. */
     private static void poseIdle(LucarioModel m, double seconds) {
         BedrockAnimation idle = m.animation("ground_idle");
         for (Map.Entry<String, ModelPart> e : m.parts.entrySet()) {

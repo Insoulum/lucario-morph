@@ -16,15 +16,15 @@ public class LucarioClient implements ClientModInitializer {
 
     @Override
     public void onInitializeClient() {
-        // Читаем/создаём config/lucariomorph.json
+        // Read/create config/lucariomorph.json
         SyncConfig.get();
-        // Клиентские /lucario и /riolu — образ применяется локально и уходит
-        // в сервис синхронизации, так что его видят другие игроки с модом
+        // Client-side /lucario and /riolu - the morph is applied locally and sent
+        // to the sync service, so other players with the mod can see it
         LucarioClientCommands.register();
-        // Клавиши: L — выбор образа, J — танец
+        // Keys: L - morph picker, J - dance
         KeyBindings.register();
 
-        // Перепекаем модели при перезагрузке ресурсов (F3+T)
+        // Re-bake models on resource reload (F3+T)
         ResourceManagerHelper.get(PackType.CLIENT_RESOURCES).registerReloadListener(
                 new SimpleSynchronousResourceReloadListener() {
                     @Override
@@ -39,9 +39,9 @@ public class LucarioClient implements ClientModInitializer {
                 }
         );
 
-        // С 1.8.0 серверного канала нет: мод не работает на выделенных серверах,
-        // чужие образы приходят только через сервис синхронизации (SyncClient —
-        // WebSocket-push + запасной HTTP-опрос).
+        // Since 1.8.0 there is no server channel: the mod does not run on dedicated servers,
+        // other players' morphs arrive only via the sync service (SyncClient -
+        // WebSocket push + fallback HTTP polling).
         ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> {
             SyncClient.onJoin();
             EmoteSync.onJoin();
@@ -53,9 +53,9 @@ public class LucarioClient implements ClientModInitializer {
             AttackSwingState.clear();
             RemoteEmotes.clear();
             AuthClient.reset();
-            // 1.7.0: WS-канал эмоутов закрываем, отложенные публикации сбрасываем.
-            // Сам стоп НЕ шлём: эмоут визуально продолжается после смены мира (так
-            // устроен мод), а если игрок не вернётся — запись погасит TTL сервиса.
+            // 1.7.0: close the emote WS channel and drop pending publications.
+            // We do NOT send the stop itself: the emote keeps playing visually after a world
+            // switch (by design), and if the player never returns the service TTL expires the entry.
             EmoteSync.onDisconnect();
         });
         ClientTickEvents.END_CLIENT_TICK.register(mc -> {

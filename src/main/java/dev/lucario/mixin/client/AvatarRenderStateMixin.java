@@ -6,7 +6,7 @@ import net.minecraft.resources.Identifier;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 
-/** Добавляет в состояние рендера игрока поля "какой образ", "бежит ли", "взмах рукой" и личную модель. */
+/** Adds "which morph", "is sprinting", "arm swing" fields and a personal model to the player's render state. */
 @Mixin(AvatarRenderState.class)
 public class AvatarRenderStateMixin implements LucarioStateAccess {
     @Unique
