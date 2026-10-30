@@ -105,7 +105,7 @@ public final class LucarioRenderer {
         boolean gliding = access.lucario$isGliding();
         // 1.6.0: smooth elytra transition — the dive rotation and the body offset
         // are scaled by the per-player glide blend weight instead of snapping in.
-        float glideW = Mth.clamp(access.lucario$getGlideBlend(), 0.0F, 1.0F);
+        float glideW = Math.clamp(access.lucario$getGlideBlend(), 0.0F, 1.0F);
         boolean swimmingPose = state.hasPose(Pose.SWIMMING);
         if (swimmingPose) {
             float angle = (state.isInWater || gliding) ? -90.0F - state.xRot : -90.0F;
@@ -217,8 +217,8 @@ public final class LucarioRenderer {
         phase -= Math.floor(phase);
 
         // 1.6.0: smoothed animation weights (see MotionBlend) — poses crossfade instead of snapping.
-        float glideW = Mth.clamp(access.lucario$getGlideBlend(), 0.0F, 1.0F);
-        float danceW = Mth.clamp(access.lucario$getDanceBlend(), 0.0F, 1.0F);
+        float glideW = Math.clamp(access.lucario$getGlideBlend(), 0.0F, 1.0F);
+        float danceW = Math.clamp(access.lucario$getDanceBlend(), 0.0F, 1.0F);
         // 1.7.0: the emote is per-player: the name and clock arrive in the render state (own --
         // from DanceState/PreviewState, other players' -- from RemoteEmotes via the sync service).
         // The T-pose (raw rig) is also carried in this field. null -- no emote.
@@ -237,7 +237,7 @@ public final class LucarioRenderer {
         // Patch 11: battle stance lingers ~2s after attacking or being hurt.
         // 1.6.0: it now crossfades in/out and ALSO plays while walking — the legs
         // blend between the stance and the walk cycle, so you can move with it on.
-        float battleW = Mth.clamp(access.lucario$getBattleBlend(), 0.0F, 1.0F);
+        float battleW = Math.clamp(access.lucario$getBattleBlend(), 0.0F, 1.0F);
         // 1.6.1: Mega Lucario ships its stance under the WIP name "battle_idlewip" — try it first.
         BedrockAnimation battle = first(m, "battle_idlewip", "battle_idle");
         if (dying || sleeping || water || riding || armsForward || danceW > 0.0F || battle == null) {
@@ -251,14 +251,14 @@ public final class LucarioRenderer {
         double walkTime = (move != null && move.length > 0) ? phase * move.length : seconds;
         // 1.6.0: while gliding the legs crossfade from the walk cycle to a faster flutter
         double flightTime = (move != null && move.length > 0) ? seconds * FLIGHT_LEG_RATE % 1.0 * move.length : seconds;
-        float w = move == null ? 0f : Mth.clamp(s.walkAnimationSpeed * 1.5f, 0f, 1f);
+        float w = move == null ? 0f : Math.clamp(s.walkAnimationSpeed * 1.5f, 0f, 1f);
         if (crouching) w *= CROUCH_WALK_BLEND;
 
         double blinkT = seconds % BLINK_PERIOD_SECONDS;
         boolean blinking = !dying && blink != null && blink.length > 0 && blinkT < blink.length;
 
-        float headYaw = Mth.clamp(s.yRot, -50.0f, 50.0f);
-        float headPitch = Mth.clamp(s.xRot, -45.0f, 45.0f);
+        float headYaw = Math.clamp(s.yRot, -50.0f, 50.0f);
+        float headPitch = Math.clamp(s.xRot, -45.0f, 45.0f);
 
         // arm swing: the shoulder swings forward and the torso twists slightly (like the vanilla player)
         float swing = access.lucario$getSwing();

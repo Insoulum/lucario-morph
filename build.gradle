@@ -26,9 +26,9 @@ dependencies {
     implementation "net.fabricmc:fabric-loader:${project.loader_version}"
     implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
     // 22.x requires MC >= 26.4; 21.0.0 targets 26.3.
-    // Plain compileOnly: MC 26.3 ships unobfuscated, so no remap pass is needed,
+    // Plain compileOnly: MC 26.4 ships unobfuscated, so no remap pass is needed,
     // and the jar must NOT leak into runtime deps (Mod Menu stays optional).
-    compileOnly "com.terraformersmc:modmenu:21.0.0"
+    compileOnly "com.terraformersmc:modmenu:22.0.0-alpha.3"
 }
 
 processResources {

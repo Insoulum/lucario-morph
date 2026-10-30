@@ -1,6 +1,12 @@
 pluginManagement {
     repositories {
         maven { name = 'Fabric'; url = 'https://maven.fabricmc.net/' }
+        // Fallback mirrors FIRST for Central content: Maven Central rate-limits (HTTP 429)
+        // some environments, and configuration-phase resolution goes through THIS list.
+        maven { name = 'AliyunPublic'; url = 'https://maven.aliyun.com/repository/public' }
+        // Mirror of the Gradle Plugin Portal (foojay resolver lives there, not in Central).
+        maven { name = 'AliyunGradlePlugin'; url = 'https://maven.aliyun.com/repository/gradle-plugin' }
+        maven { name = 'TerraformersMC'; url = 'https://maven.terraformersmc.com/releases/' }
         mavenCentral()
         gradlePluginPortal()
     }
