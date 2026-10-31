@@ -50,7 +50,9 @@ import java.util.concurrent.atomic.AtomicInteger;
  * so a lagging mirror cannot override a fresh stop.
  * <p>
  * Everything works only while sync is active ({@code syncActive()}): there is no separate
- * toggle - emotes ride along with morphs (a decision by the mod owner).
+ * toggle - emotes ride along with morphs (a decision by the mod owner). Since 1.8.1-pre9
+ * it also requires the {@link SyncClient} "someone is watching" gate ({@code minPlayers}):
+ * alone in the world the channel is torn down and zero traffic goes out.
  */
 @Environment(EnvType.CLIENT)
 public final class EmoteSync {
@@ -149,6 +151,13 @@ public final class EmoteSync {
         nextPollMs = 0L;
     }
 
+    /** 1.8.1-pre9: the "someone is watching" gate opened (a viewer joined) - retry the WS
+     *  channel and the fallback poll right away instead of waiting out the backoff. */
+    static void nudge() {
+        nextWsTryMs = 0L;
+        nextPollMs = 0L;
+    }
+
     /**
      * On leaving the world. We do NOT publish a stop: the emote visually continues after
      * changing worlds too (that is how the mod works), and if the player never returns, the
@@ -166,7 +175,9 @@ public final class EmoteSync {
     public static void tick(Minecraft mc) {
         if (mc.level == null || mc.getConnection() == null) return;
         SyncConfig cfg = SyncConfig.get();
-        if (!cfg.syncActive() || cfg.serviceUrls.isEmpty()) {
+        // 1.8.1-pre9: the "someone is watching" gate rides along with the consent check:
+        // alone in the world the channel is torn down (symmetric with turning sync off).
+        if (!cfg.syncActive() || cfg.serviceUrls.isEmpty() || !SyncClient.syncGate()) {
             // 1.7.5: turning sync off on the server tears the channel down completely (symmetric
             // with turning it on): previously a live WS survived until rejoin - incoming events
             // kept arriving and live in /health never dropped. Outgoing traffic had died
@@ -238,7 +249,7 @@ public final class EmoteSync {
         // own, inflating conns in /health (2->6 jumps for a single player).
         nextPublishMs = System.currentTimeMillis() + RETRY_MS;
         SyncConfig cfg = SyncConfig.get();
-        if (!cfg.syncActive() || cfg.serviceUrls.isEmpty()) {
+        if (!cfg.syncActive() || cfg.serviceUrls.isEmpty() || !SyncClient.syncGate()) {
             pendingIntent = null;
             return;
         }

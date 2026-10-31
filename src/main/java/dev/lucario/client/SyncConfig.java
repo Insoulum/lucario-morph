@@ -45,6 +45,16 @@ public final class SyncConfig {
     /** How often (in seconds) to check player morphs on the server. Minimum 2. */
     public int syncIntervalSeconds = 5;
     /**
+     * 1.8.1-pre9: the client talks to the mirrors only while at least this many players are
+     * on the server (the TAB list, all dimensions, self included) - alone nobody can see the
+     * morph anyway. 2 - default: alone in the world (or in singleplayer) the client is fully
+     * silent (no PUT, no polls, no /health, no WS); a viewer joining wakes it up immediately.
+     * 1 - the old "always sync" behavior. Integer wrapper (not a primitive): configs from
+     * before 1.8.1-pre9 lack this field - the same "no field - default" contract as
+     * autoAuth/heartbeatMinutes (Gson via Unsafe fills missing primitives with zero).
+     */
+    public Integer minPlayers = Integer.valueOf(2);
+    /**
      * Record "heartbeat": every this many minutes the client quietly re-publishes the current
      * morph to the mirrors, so the record does not go stale on services with a short TTL
      * (records without updates are considered abandoned and deleted - e.g. the mod was removed
@@ -119,6 +129,7 @@ public final class SyncConfig {
                     cfg.syncIntervalSeconds = loaded.syncIntervalSeconds;
                     if (loaded.heartbeatMinutes != null) cfg.heartbeatMinutes = loaded.heartbeatMinutes;
                     if (loaded.debugChat != null) cfg.debugChat = loaded.debugChat;
+                    if (loaded.minPlayers != null) cfg.minPlayers = loaded.minPlayers;
                     cfg.lastVariant = loaded.lastVariant == null ? "" : loaded.lastVariant;
                     if (loaded.serviceUrls != null && !loaded.serviceUrls.isEmpty()) {
                         cfg.serviceUrls = new ArrayList<>(loaded.serviceUrls);
@@ -141,6 +152,9 @@ public final class SyncConfig {
         if (cfg.syncIntervalSeconds < 2) cfg.syncIntervalSeconds = 2;
         if (cfg.heartbeatMinutes == null) cfg.heartbeatMinutes = 15;
         if (cfg.heartbeatMinutes < 0) cfg.heartbeatMinutes = 0;   // negative = disabled
+        if (cfg.minPlayers == null) cfg.minPlayers = 2;
+        if (cfg.minPlayers < 1) cfg.minPlayers = 1;               // 1 = the old always-sync behavior
+        if (cfg.minPlayers > 100) cfg.minPlayers = 100;
         if (cfg.autoAuth == null) cfg.autoAuth = Boolean.TRUE;
         if (cfg.debugChat == null) cfg.debugChat = Boolean.FALSE;
         if (!cfg.lastVariant.isEmpty() && !Variants.isValid(cfg.lastVariant)) cfg.lastVariant = "";

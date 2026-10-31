@@ -19,6 +19,12 @@ repositories {
     // Mod Menu (optional integration): compile against it, but it is NOT required
     // at runtime — the "modmenu" entrypoint class is only ever loaded by Mod Menu itself.
     maven { name = 'TerraformersMC'; url = 'https://maven.terraformersmc.com/releases/' }
+    // 1.8.1-pre9: Loom injects its own mavenCentral ("MavenRepo") when the plugin applies,
+    // i.e. BEFORE the mirror repos above. An HTTP 429 from Central is a fatal repository
+    // error, not a "resource missing": the resolution aborts right there and the mirrors
+    // standing after it are never tried. Central content is fully covered by the mirrors,
+    // so drop the injected repo from the chain entirely.
+    removeAll { it.name == 'MavenRepo' }
 }
 
 dependencies {
