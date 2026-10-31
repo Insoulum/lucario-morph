@@ -50,6 +50,12 @@ import java.util.concurrent.atomic.AtomicInteger;
  *       marker ("mod present, default skin") - the record is not deleted, and the backend
  *       can tell "mod without a morph" from "no mod". Incoming markers (events, snapshots,
  *       polls) are treated as "no morph"; it must not be rendered - the whitelist drops it.</li>
+ *   <li>1.8.1-pre9: the client talks to the mirrors only while at least {@code minPlayers}
+ *       (default 2) players are on the server - the TAB list, all dimensions, self included.
+ *       Alone in the world (or in singleplayer) the client is fully silent: no PUT, no polls,
+ *       no /health, no WS. A viewer joining wakes the channel up immediately (the pending
+ *       publish goes out, a full poll runs, the WS reconnects); the last viewer leaving tears
+ *       it down after a short grace period so quick relogs do not flap the connection.</li>
  * </ul>
  *
  * <p>Publishing goes to <b>all</b> mirrors at once, reading - from the first one to answer
@@ -105,6 +111,13 @@ public final class SyncClient {
      *  world join the regular cycle had already run (WS connects in ~0.5 s), and then
      *  the "safety net" did a SECOND identical GET /v1/morphs - there was nothing to insure. */
     private static volatile long lastFullFetchMs = 0L;
+    /** 1.8.1-pre9: the "someone is watching" gate state - true while the client may talk to the mirrors. */
+    private static volatile boolean gateOpen = false;
+    /** 1.8.1-pre9: since when the server has been below minPlayers (0 - not counting). */
+    private static long aloneSinceMs = 0L;
+    /** 1.8.1-pre9: grace period after the last viewer leaves - quick relogs (lobby churn)
+     *  must not flap the WS channel; the record TTL also gets a free refresh. */
+    private static final long SOLO_GRACE_MS = 10_000L;
 
     private SyncClient() {}
 
@@ -132,6 +145,9 @@ public final class SyncClient {
             pendingPublish = null;
             return;
         }
+        // 1.8.1-pre9: nobody around to see the morph - keep pendingPublish and wait:
+        // the gate re-open (a viewer joined) delivers it without a new publish() call.
+        if (!syncGate()) return;
         UUID self = selfUuid();
         if (self == null) return; // the player has not spawned yet - tick() will retry
 
@@ -230,6 +246,50 @@ public final class SyncClient {
         }
     }
 
+    // ============================================================ "someone is watching" gate (1.8.1-pre9)
+
+    /** 1.8.1-pre9: the morph is worth syncing only while someone can actually see it:
+     *  {@code minPlayers} (default 2) players on the server - the TAB list, all dimensions,
+     *  self included. Singleplayer or an empty server = no sync traffic at all. */
+    static boolean enoughPlayers() {
+        SyncConfig cfg = SyncConfig.get();
+        int min = cfg.minPlayers == null ? 2 : cfg.minPlayers;
+        if (min <= 1) return true; // 1 - the old "always sync" behavior
+        Minecraft mc = Minecraft.getInstance();
+        return mc.getConnection() != null
+                && mc.getConnection().getOnlinePlayers().size() >= min;
+    }
+
+    /** 1.8.1-pre9: the effective gate for every outgoing request. On the open transition
+     *  (a viewer joined) the channel wakes up immediately: the pending publish goes out,
+     *  a full poll is scheduled, the heartbeat restarts, EmoteSync reconnects its WS.
+     *  On close (the last viewer left, after the grace period) EmoteSync tears the channel
+     *  down on its next tick - symmetric with turning sync off. Main thread only. */
+    static boolean syncGate() {
+        SyncConfig cfg = SyncConfig.get();
+        if (!cfg.syncActive() || cfg.serviceUrls.isEmpty()) return false; // consent - callers check anyway
+        if (enoughPlayers()) {
+            if (!gateOpen) {
+                gateOpen = true;
+                aloneSinceMs = 0L;
+                NetDebug.http("в мире есть наблюдатели — синк активен");
+                nextPublishAttemptMs = 0L; // pending publish goes out right now
+                nextCycleMs = 0L;          // full poll right now
+                nextResyncMs = 0L;
+                nextHeartbeatMs = 0L;      // the heartbeat reschedules from now
+                EmoteSync.nudge();         // the WS reconnects on this tick, not on the backoff horizon
+            }
+            return true;
+        }
+        long now = System.currentTimeMillis();
+        if (aloneSinceMs == 0L) aloneSinceMs = now;
+        if (gateOpen && now - aloneSinceMs >= SOLO_GRACE_MS) {
+            gateOpen = false;
+            NetDebug.http("в мире больше нет наблюдателей — трафик синка приостановлен");
+        }
+        return gateOpen;
+    }
+
     /** Called every client tick. */
     public static void tick(Minecraft mc) {
         if (mc.level == null || mc.getConnection() == null) return;
@@ -258,10 +318,14 @@ public final class SyncClient {
         }
 
         // Scheduled record-authorization retries (triggered by a 401 from a mirror).
-        AuthClient.tick();
+        // 1.8.1-pre9: paused while the "someone is watching" gate is closed - there is
+        // nothing to authorize while the client publishes nothing.
+        if (syncGate()) AuthClient.tick();
 
-        // Everything that talks to the external service (polling and the "heartbeat") requires explicit opt-in consent.
-        if (!cfg.syncActive() || cfg.serviceUrls.isEmpty()) return;
+        // Everything that talks to the external service (polling and the "heartbeat") requires
+        // explicit opt-in consent - and, since 1.8.1-pre9, someone around to actually see the
+        // morph (minPlayers, default 2; 1 - the old "always sync" behavior).
+        if (!cfg.syncActive() || cfg.serviceUrls.isEmpty() || !syncGate()) return;
         long now = System.currentTimeMillis();
 
         // "Heartbeat": every heartbeatMinutes minutes quietly re-publish the current morph
@@ -325,7 +389,7 @@ public final class SyncClient {
      *  does not inflate conns or eat the request quota. */
     static void debugHealth() {
         SyncConfig cfg = SyncConfig.get();
-        if (!cfg.syncActive() || cfg.serviceUrls.isEmpty()) return;
+        if (!cfg.syncActive() || cfg.serviceUrls.isEmpty() || !syncGate()) return;
         long now = System.currentTimeMillis();
         if (now - lastHealthMs < 30_000L) return;
         lastHealthMs = now;

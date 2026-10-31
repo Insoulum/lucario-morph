@@ -5,6 +5,17 @@ of the corresponding release. For the current feature set see [README.md](README
 
 ## Unreleased
 
+* **Sync traffic only when someone can see you** (1.8.1-pre9): the client now talks to the
+  sync service only while at least `minPlayers` (default 2) players are on the server (the
+  TAB list, all dimensions, self included). Alone in the world -- or in singleplayer -- the
+  client is fully silent: no morph publishes, no polls, no /health probes, no WebSocket,
+  no emote PUTs. A viewer joining wakes the channel up immediately (the pending morph publish
+  goes out, a full poll runs, the WS reconnects instead of waiting out the backoff); the last
+  viewer leaving tears it down after a 10-second grace period, so quick relogs do not flap
+  the connection. Bonus: with one player on the server the sync service sees zero requests
+  from you. Set `"minPlayers": 1` in `config/lucariomorph.json` to restore the old always-on
+  behavior. Note: servers that hide players from the TAB list (vanish plugins) look "empty"
+  to the gate -- use 1 there.
 * **Prototype (1.8.1):** a **Cape: Yes/No** toggle in the form picker (next to Shiny): your own
   Minecraft cape is drawn as a hanging cloth on the morph's back (Lucario / Riolu / Mega alike)
   while the toggle is Yes and no elytra is worn; a worn elytra always renders its wings as before.
