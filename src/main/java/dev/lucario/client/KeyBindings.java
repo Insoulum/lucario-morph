@@ -10,7 +10,7 @@ import net.minecraft.resources.Identifier;
 /**
  * Patch 10: key bindings for the morph picker and the dance emote.
  * <p>
- * 26.3 uses SDL scancodes instead of GLFW keycodes (W=26, T=23, so J=13, L=15)
+ * 26.3 uses SDL scancodes instead of GLFW keycodes (W=26, T=23, so J=13, K=14)
  * and a {@code KeyMapping.Category} record instead of a String category.
  * Fabric API 0.16x: {@code KeyMappingHelper.registerKeyMapping} (module
  * {@code fabric-key-mapping-api-v1}).
@@ -37,10 +37,13 @@ public final class KeyBindings {
    }
 
    public static void register() {
-      // SDL_SCANCODE_L = 15, SDL_SCANCODE_J = 13 (GLFW is gone in 26.3, SDL-era scancodes)
+      // 1.8.1: PICKER now defaults to K (SDL_SCANCODE_K = 14) instead of L — 26.3 uses
+      // SDL scancodes (GLFW keycodes are gone): A=4 ... J=13, K=14, L=15 ... Z=29.
+      // NOTE: players who already ran an older build keep their saved L binding
+      // (options.txt wins over the default).
       PICKER = KeyMappingHelper.registerKeyMapping(new KeyMapping(
          "key.lucariomod.picker",
-         15,
+         14,
          CATEGORY
       ));
       DANCE = KeyMappingHelper.registerKeyMapping(new KeyMapping(

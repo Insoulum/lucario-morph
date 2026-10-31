@@ -241,7 +241,9 @@ public final class SyncClient {
             String v = cfg.rememberVariant ? cfg.lastVariant : "";
             if (!v.isEmpty() && Variants.isValid(v)) {
                 ClientMorphs.set(mc.player.getUUID(), v);
-                publish(v); // without consent (syncActive()) the publish is simply dropped
+                // 1.8.1-pre8: every publish carries the cape flag (at join the session toggle is
+                // its default "visible", so this composes to the bare key).
+                publish(Variants.withCape(v, VariantPickerScreen.capeVisible)); // dropped without consent (syncActive())
             } else {
                 // 1.7.3: no morph - publish the "mod present" marker (permanent registration)
                 publish(PRESENT_MARKER);
@@ -275,8 +277,11 @@ public final class SyncClient {
                 UUID self = selfUuid();
                 String current = self == null ? null : ClientMorphs.get(self);
                 if (pendingPublish == null) {
-                    // 1.7.3: the heartbeat also refreshes the "mod present" marker (default skin), not only morphs
-                    doPublish(current == null || current.isEmpty() ? PRESENT_MARKER : current);
+                    // 1.7.3: the heartbeat also refreshes the "mod present" marker (default skin), not only morphs.
+                    // 1.8.1-pre8: the heartbeat re-publishes the key WITH the cape flag (ClientMorphs
+                    // keeps the bare key for the local player - compose here).
+                    doPublish(current == null || current.isEmpty() ? PRESENT_MARKER
+                            : Variants.withCape(current, VariantPickerScreen.capeVisible));
                 }
             }
         }

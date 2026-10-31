@@ -20,6 +20,10 @@ public class AvatarRenderStateMixin implements LucarioStateAccess {
     @Unique
     private boolean lucario$swingRight = true;
     @Unique
+    private Identifier lucario$capeTexture;
+    @Unique
+    private boolean lucario$capeVisible = true;
+    @Unique
     private boolean lucario$gliding;
     @Unique
     private boolean lucario$elytra;
@@ -88,6 +92,26 @@ public class AvatarRenderStateMixin implements LucarioStateAccess {
     @Override
     public void lucario$setSwingRight(boolean right) {
         this.lucario$swingRight = right;
+    }
+
+    @Override
+    public Identifier lucario$getCapeTexture() {
+        return lucario$capeTexture;
+    }
+
+    @Override
+    public void lucario$setCapeTexture(Identifier texture) {
+        this.lucario$capeTexture = texture;
+    }
+
+    @Override
+    public boolean lucario$capeVisible() {
+        return lucario$capeVisible;
+    }
+
+    @Override
+    public void lucario$setCapeVisible(boolean visible) {
+        this.lucario$capeVisible = visible;
     }
 
     @Override

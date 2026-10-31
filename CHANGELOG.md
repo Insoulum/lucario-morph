@@ -5,6 +5,29 @@ of the corresponding release. For the current feature set see [README.md](README
 
 ## Unreleased
 
+* **Prototype (1.8.1):** a **Cape: Yes/No** toggle in the form picker (next to Shiny): your own
+  Minecraft cape is drawn as a hanging cloth on the morph's back (Lucario / Riolu / Mega alike)
+  while the toggle is Yes and no elytra is worn; a worn elytra always renders its wings as before.
+  The cloth is the classic rectangular cloak (the vanilla cloak box). Each form drapes it to its
+  own standing angle: Riolu keeps the gentle one, regular Lucario tilts a bit more so the hem
+  clears its fluffy hip fur, and Mega Lucario drapes strongest of the three -- and while walking
+  or running the cloth billows gently behind the back: the hem lifts off and settles back (no
+  side-to-side swing).
+  Riolu tweaks: while riding it now sits with the legs extended forward like Lucario and Mega
+  Lucario (the lower leg used to stay folded, digging the paws into the seat), the elytra wings
+  hug the body even closer, and it sits a bit higher in boats/minecarts.
+  Takes effect immediately, remembered for the session. Requires an actual account cape.
+* **The Cape toggle is now synced** (1.8.1-pre8): your Yes/No choice travels with the morph key
+  (a "_nocape" suffix, the same way "_shiny" does) through the usual sync service -- so other
+  players render your cape exactly as you set it, and your toggle no longer controls every
+  morph on your own screen. Flipping the toggle re-publishes immediately; the heartbeat keeps
+  the flag alive. Players on older builds see a "_nocape" morph as no morph -- update together.
+* The picker's **Done button now applies the Shiny toggle** to the currently worn morph:
+  flip Shiny, press Done — the morph switches shiny/non-shiny without re-picking the variant
+  (both directions; with no morph worn Done just closes).
+* The morph-picker keybind **defaults to K** instead of L (26.3 SDL scancode 14).
+  Existing players keep their saved binding — remap once in Options → Controls if you want K too.
+
 * **Minecraft 26.4 support** (`mc26.4` branch): ported to `26.4-snapshot-6` — Fabric Loader 0.20.1,
   Fabric API 0.165.1+26.4, Mod Menu 22.0.0-alpha.3. The only code change required:
   `Mth.clamp` was removed upstream and replaced with the standard `Math.clamp` (Java 21+).
