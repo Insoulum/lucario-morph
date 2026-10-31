@@ -25,6 +25,23 @@ public interface LucarioStateAccess {
 
     void lucario$setSwingRight(boolean right);
 
+    /**
+     * The player's own Minecraft cape texture (null - the account has no cape). 1.8.1:
+     * used by the cape decoration on the morph's back (the picker's "Cape" toggle).
+     */
+    net.minecraft.resources.Identifier lucario$getCapeTexture();
+
+    void lucario$setCapeTexture(net.minecraft.resources.Identifier texture);
+
+    /**
+     * The cape toggle of THIS morph's owner (1.8.1-pre8): own morph - the live picker toggle,
+     * other players - the flag published with their morph key ("_nocape"). The renderer gates
+     * the cape cloth with it (a worn elytra overrides it as before).
+     */
+    boolean lucario$capeVisible();
+
+    void lucario$setCapeVisible(boolean visible);
+
     /** The player is currently gliding with an elytra. */
     boolean lucario$isGliding();
 

@@ -12,6 +12,7 @@ import dev.lucario.client.LucarioStateAccess;
 import dev.lucario.client.MotionBlend;
 import dev.lucario.client.PreviewState;
 import dev.lucario.client.RemoteEmotes;
+import dev.lucario.client.VariantPickerScreen;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.AbstractClientPlayer;
 import net.minecraft.client.renderer.SubmitNodeCollector;
@@ -46,6 +47,7 @@ public abstract class AvatarRendererMixin {
         access.lucario$setGlideBlend(0.0F);
         access.lucario$setEmoteAnim(null);
         access.lucario$setEmoteTime(0.0);
+        access.lucario$setCapeVisible(true); // render states are reused - reset to the default
         String variant = ClientMorphs.get(entity.getUUID());
         access.lucario$setVariant(variant);
         if (variant == null) return;
@@ -71,6 +73,9 @@ public abstract class AvatarRendererMixin {
         // Remote players keep the old full-strike behavior — their click type
         // is not observable client-side.
         boolean local = entity == Minecraft.getInstance().player;
+        // 1.8.1-pre8: the cape toggle is per player - the own morph follows the live picker
+        // toggle, other players follow the flag published with their morph key ("_nocape").
+        access.lucario$setCapeVisible(local ? VariantPickerScreen.capeVisible : !Variants.capeHidden(variant));
         boolean swinging = entity.isSwinging();
         boolean attacking = swinging && (!local || AttackSwingState.recent(entity.getUUID(), 700L));
         access.lucario$setSwing(swinging ? entity.getSwingAnimation(tickProgress) : 0.0F);
@@ -88,6 +93,9 @@ public abstract class AvatarRendererMixin {
             Identifier wingTexture = skin.elytra() != null ? skin.elytra().texturePath() : null;
             if (wingTexture == null && skin.cape() != null) wingTexture = skin.cape().texturePath();
             access.lucario$setElytraTexture(wingTexture);
+            // 1.8.1: the account's own cape texture for the cape decoration on the morph's
+            // back (null - the account has no cape; the picker's "Cape" toggle gates it).
+            access.lucario$setCapeTexture(skin.cape() != null ? skin.cape().texturePath() : null);
         }
 
         // Is riding (boat, minecart, pig, etc.) - for the sitting pose

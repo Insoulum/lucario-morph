@@ -20,6 +20,12 @@ public final class Variants {
     public static final String SHINY_SUFFIX = "_shiny";
     /** The shiny modifier word: write it separately ("captain shiny") or with an underscore. */
     public static final String SHINY_WORD = "shiny";
+    /**
+     * 1.8.1-pre8: the picker's cape toggle rides the sync key the same way "_shiny" does:
+     * a key ending with "_nocape" means the owner turned the cape OFF. No suffix = cape
+     * visible (the default -- so keys published by older builds keep working unchanged).
+     */
+    public static final String NOCAPE_SUFFIX = "_nocape";
 
     public static final String DEFAULT_LUCARIO = "lucario";
     public static final String DEFAULT_RIOLU = "riolu";
@@ -88,12 +94,32 @@ public final class Variants {
         return null;
     }
 
+    /** Strips the "_nocape" flag -- the helpers below want the bare variant key. */
+    private static String stripCape(String v) {
+        return capeHidden(v) ? v.substring(0, v.length() - NOCAPE_SUFFIX.length()) : v;
+    }
+
+    /** true -- the key carries the "_nocape" flag: this player's cape toggle is OFF. */
+    public static boolean capeHidden(String v) {
+        return v != null && v.endsWith(NOCAPE_SUFFIX);
+    }
+
+    /** Composes the sync key with the cape flag (idempotent: an existing flag is re-set). */
+    public static String withCape(String v, boolean visible) {
+        String bare = v == null ? null : stripCape(v);
+        return visible || bare == null ? bare : bare + NOCAPE_SUFFIX;
+    }
+
     public static boolean isShiny(String v) {
-        return v != null && v.endsWith(SHINY_SUFFIX);
+        String bare = stripCape(v);
+        return bare != null && bare.endsWith(SHINY_SUFFIX);
     }
 
     public static String baseOf(String v) {
-        return isShiny(v) ? v.substring(0, v.length() - SHINY_SUFFIX.length()) : v;
+        String bare = stripCape(v);
+        return bare != null && bare.endsWith(SHINY_SUFFIX)
+                ? bare.substring(0, bare.length() - SHINY_SUFFIX.length())
+                : bare;
     }
 
     public static boolean isValid(String v) {

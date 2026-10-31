@@ -54,7 +54,33 @@ public final class LucarioRenderer {
     private static final float ELYTRA_SCALE_RIOLU = 0.33f;
     private static final float ELYTRA_UP_LUCARIO = 4.0f, ELYTRA_BACK_LUCARIO = 1.5f;
     private static final float ELYTRA_BACK_MEGA = 1.7f;
-    private static final float ELYTRA_UP_RIOLU = 3.0f, ELYTRA_BACK_RIOLU = 0.65f;
+    // 1.8.1-pre7: Riolu's wings hug the body a touch closer (0.65 -> 0.45 -> 0.3).
+    private static final float ELYTRA_UP_RIOLU = 3.0f, ELYTRA_BACK_RIOLU = 0.3f;
+    /** Cape cloth (1.8.1 prototype): size relative to the vanilla cloak box; the pivot position on
+     *  the back (Bedrock units from the chest/torso bone -- the cloth hangs down and BACK from the
+     *  pivot, so BACK sets the gap from the body surface); and the hem tilt away from the back
+     *  (radians, more while sneaking). Shown while the picker's "Cape" toggle is Yes and no elytra
+     *  is worn. */
+    private static final float CAPE_SCALE_LUCARIO = 0.72f;
+    private static final float CAPE_SCALE_RIOLU = 0.5f;
+    private static final float CAPE_UP_LUCARIO = 4.0f, CAPE_BACK_LUCARIO = 2.7f;
+    private static final float CAPE_BACK_MEGA = 2.7f;
+    private static final float CAPE_UP_RIOLU = 3.0f, CAPE_BACK_RIOLU = 1.3f;
+    private static final float CAPE_TILT_CROUCH = 0.40f;
+    /** Standing drape per form (1.8.1-pre6): Riolu keeps the gentle original angle; regular
+     *  Lucario tilts a bit more so the hem clears its fluffy hip fur (as Mega Lucario already
+     *  does, only weaker); Mega Lucario drapes strongest of the three. */
+    private static final float CAPE_TILT_RIOLU = 0.10f, CAPE_TILT_LUCARIO = 0.2f;
+    /** Mega Lucario's chest fur is thick: a stronger standing drape keeps the hem clear of it
+     *  (1.8.1 -- without the extra tilt the cloth sinks into the fur ruff at the hips). */
+    private static final float CAPE_TILT_MEGA = 0.4f;
+    /** Extra hem flare at full running speed (added to the standing tilt, scaled by the walk weight). */
+    private static final float CAPE_TILT_RUN = 0.22f;
+    /** Subtle billow of the hem BEHIND the back at the stride frequency (radians at full walk
+     *  weight): the cloth lifts off the back and settles back onto its tilt. It never swings
+     *  side-to-side; and since the standing tilt is 0.10, the hem stays clear of the body even
+     *  at the lowest point of the flutter. */
+    private static final float CAPE_FLAP = 0.05f;
     /** Arms forward when swimming/crawling/gliding: shoulder pitch (rad) and pulling the arms toward the body axis. */
     private static final float ARMS_FORWARD_PITCH = -3.0f;
     private static final float ARMS_FORWARD_ROLL = 0.25f; // rad, spreading the arms apart (so they don't clip the head)
@@ -62,8 +88,9 @@ public final class LucarioRenderer {
     private static final float CROUCH_WALK_BLEND = 0.43f;
     /** Stride cycles per second of the legs during elytra flight. */
     private static final double FLIGHT_LEG_RATE = 1.25;
-    /** How many Bedrock units Riolu is lifted in a boat/minecart etc. (otherwise it would barely peek over the seat). */
-    private static final float RIOLU_RIDE_LIFT = 3.0f;
+    /** How many Bedrock units Riolu is lifted in a boat/minecart etc. (otherwise it would barely peek over the seat).
+     *  1.8.1-pre6: raised 3.0 -> 4.5 -- even with the old 3.0 lift the sitting legs still sank into the seat. */
+    private static final float RIOLU_RIDE_LIFT = 4.5f;
     /** How many pixels (1/16-block pixels) to lower the model in "ground" poses (standing/walking)
      *  so the soles don't "hover" above the ground. Raise the value if the model still floats,
      *  lower it or set it to 0 if the feet start sinking. Not applied while sneaking -- that has its own
@@ -151,6 +178,17 @@ public final class LucarioRenderer {
         // The elytra is drawn for everyone except morphs with their "own" back wings (the costume Lucario).
         if (access.lucario$hasElytra() && !Variants.hidesElytra(variantKey)) {
             renderElytra(model, riolu, Variants.isMega(variantKey), gliding, state.hasPose(Pose.CROUCHING), access.lucario$getElytraTexture(), state, matrices, collector, light, overlay);
+        }
+        // 1.8.1 prototype: the player's own Minecraft cape as a hanging cloth on the morph's back
+        // (Lucario / Riolu / Mega alike) while THIS player's cape toggle is Yes - the live picker
+        // toggle for the own morph, the flag published with the morph key ("_nocape") for other
+        // players (1.8.1-pre8). Only when NO elytra is worn (the wings take the back) and the
+        // account actually has a cape. The costume morphs (their own back wings) are excluded
+        // like the elytra.
+        Identifier capeTexture = access.lucario$getCapeTexture();
+        if (access.lucario$capeVisible() && !access.lucario$hasElytra() && capeTexture != null
+                && !Variants.hidesElytra(variantKey)) {
+            renderCape(model, riolu, Variants.isMega(variantKey), state.hasPose(Pose.CROUCHING), capeTexture, state, matrices, collector, light, overlay);
         }
         matrices.popPose();
     }
@@ -504,6 +542,50 @@ public final class LucarioRenderer {
         matrices.scale(k, k, k);
         matrices.translate(0.0F, 0.0F, 0.125F);
         collector.submitModel(m.elytraModel, state, matrices, texture != null ? texture : ELYTRA_TEXTURE, light, overlay, state.outlineColor);
+        matrices.popPose();
+    }
+
+    // ------------------------------------------------------------------ cape
+
+    /** The player's own cape drawn as a hanging cloth on the morph's back (1.8.1 prototype).
+     *  The cloth hangs down and back from the pivot at its top edge; a slight tilt drapes the
+     *  hem away from the body (more while sneaking; Mega Lucario drapes more still, so the
+     *  hem clears its chest fur). */
+    private static void renderCape(LucarioModel m, boolean riolu, boolean mega, boolean crouching, Identifier texture,
+                                   LivingEntityRenderState state, PoseStack matrices, SubmitNodeCollector collector, int light, int overlay) {
+        String attach = m.parts.containsKey("chest") ? "chest" : "torso";
+        if (!m.parts.containsKey(attach)) return;
+
+        m.cape.setPos(0.0F, 0.0F, 0.0F);
+
+        // Cloth motion (1.8.1): while moving, the cloth billows gently BEHIND the back -- the hem
+        // lifts off and settles back onto its tilt at the stride frequency (a soft two-harmonic
+        // flutter). No side-to-side swing: the cloth stays in one plane. Standing still (walk
+        // weight 0) it just hangs on its tilt.
+        float walkW = Math.clamp(state.walkAnimationSpeed * 1.5f, 0f, 1f);
+        double phase = state.walkAnimationPos / STRIDE_CYCLE;
+        float flap = (float) (Math.sin(phase * 2.0 * Math.PI) * 0.7
+                + Math.sin(phase * 4.0 * Math.PI + 1.3) * 0.3);
+        float tilt = crouching ? CAPE_TILT_CROUCH
+                : (mega ? CAPE_TILT_MEGA : riolu ? CAPE_TILT_RIOLU : CAPE_TILT_LUCARIO)
+                + CAPE_TILT_RUN * walkW + flap * CAPE_FLAP * walkW;
+
+        matrices.pushPose();
+        applyChain(m, attach, matrices);
+        matrices.translate(0.0F, -(riolu ? CAPE_UP_RIOLU : CAPE_UP_LUCARIO) / 16.0F,
+                (riolu ? CAPE_BACK_RIOLU : mega ? CAPE_BACK_MEGA : CAPE_BACK_LUCARIO) / 16.0F);
+        // As in the vanilla cape layer: flip the cloth 180 degrees around Y. The cloth ends up
+        // extending BACKWARD from the pivot and its design face looks AWAY from the body;
+        // without the flip the cape renders inside-out (design toward the spine, i.e. it
+        // hangs "back to front").
+        matrices.rotateDegrees(Axis.YP, 180.0F);
+        // The Y-flip also inverts part-space xRot, so the tilt constants are applied negated:
+        // a positive xRot would press the hem INTO the back instead of draping it away.
+        // The billow is folded into the tilt, so the hem only ever moves back-and-forth.
+        m.cape.setRotation(-tilt, 0.0F, 0.0F);
+        float k = (riolu ? CAPE_SCALE_RIOLU : CAPE_SCALE_LUCARIO) / LucarioModel.RENDER_SCALE;
+        matrices.scale(k, k, k);
+        collector.submitModel(m.capeModel, state, matrices, texture, light, overlay, state.outlineColor);
         matrices.popPose();
     }
 

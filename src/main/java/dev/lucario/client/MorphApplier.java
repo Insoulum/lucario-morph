@@ -33,8 +33,27 @@ public final class MorphApplier {
       SyncConfig cfg = SyncConfig.get();
       cfg.lastVariant = v == null ? "" : v;
       cfg.save();
-      SyncClient.publish(v);
+      // 1.8.1-pre8: the picker's cape toggle travels with the morph key ("_nocape", the same
+      // way "_shiny" does) - other clients then honor THIS player's picker choice.
+      SyncClient.publish(v == null ? null : Variants.withCape(v, VariantPickerScreen.capeVisible));
       return true;
+   }
+
+   /**
+    * 1.8.1-pre8: re-publishes the currently worn morph with the current cape flag - called when
+    * only the picker's Cape toggle was flipped, so other players see the change without re-picking
+    * the variant (a no-op with no morph worn; without sync the publish is dropped as usual).
+    */
+   public static void republishCape() {
+      LocalPlayer player = Minecraft.getInstance().player;
+      if (player == null) {
+         return;
+      }
+      String current = ClientMorphs.get(player.getUUID());
+      if (current == null || current.isEmpty()) {
+         return;
+      }
+      SyncClient.publish(Variants.withCape(current, VariantPickerScreen.capeVisible));
    }
 
    /** Applies the morph and prints the same feedback the client command would print. */

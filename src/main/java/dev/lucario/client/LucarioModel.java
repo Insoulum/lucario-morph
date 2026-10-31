@@ -64,6 +64,15 @@ public final class LucarioModel {
     // Sitting pose: hips lifted slightly, knees spread a bit -- the legs come out straight, not bent.
     private static final double SIT_HIP_LIFT_DEG = 4.0;
     private static final double SIT_KNEE_OPEN_DEG = 16.0;
+    // 1.8.1-pre7: the world pitches the LOWER leg is folded to while sitting -- the Lucario
+    // reference silhouette (long shin near-horizontal, paw angled down, toes forward). The
+    // per-bone corrections land every form's lower leg on these same extended legs; for the
+    // Lucario family the corrections compute to exactly 0 (their rest bases already produce
+    // this silhouette), while Riolu's lower leg used to keep its rest fold and dug the paws
+    // into the seat.
+    private static final double SIT_SHIN_WORLD_DEG = -75.0;
+    private static final double SIT_PAW_WORLD_DEG = -30.0;
+    private static final double SIT_TOES_WORLD_DEG = -75.0;
 
     public final ModelPart root;
     /** All bones by name (including roots). Each baked model has its own -- see LucarioModels. */
@@ -89,6 +98,10 @@ public final class LucarioModel {
     public final ModelPart elytraRight;
     /** Wraps the elytra wing bones in a Model for submission (setupAnim is empty: the pose is set before the submit). */
     public final Model<LivingEntityRenderState> elytraModel;
+    /** Cape cloth on the back (1.8.1 prototype) -- vanilla cloak box, the player's own cape texture. */
+    public final ModelPart cape;
+    /** Wraps the cape bone in a Model for submission (setupAnim is empty: the pose is set before the submit). */
+    public final Model<LivingEntityRenderState> capeModel;
     /** Wrapper of the root in a Model for the new render submit pipeline (26.x).
      *  setupAnim is called by the pipeline when drawing the submit -- here the pose is re-applied
      *  from that specific player's state, so identical morphs don't "copy" each other. */
@@ -108,6 +121,13 @@ public final class LucarioModel {
         this.elytraLeft = elytra.getChild("left_wing");
         this.elytraRight = elytra.getChild("right_wing");
         this.elytraModel = new Model<>(elytra, RenderTypes::entityCutout) {
+            @Override
+            public void setupAnim(LivingEntityRenderState state) {
+            }
+        };
+        ModelPart capeRoot = capeLayer().bakeRoot();
+        this.cape = capeRoot.getChild("cape");
+        this.capeModel = new Model<>(capeRoot, RenderTypes::entityCutout) {
             @Override
             public void setupAnim(LivingEntityRenderState state) {
             }
@@ -306,6 +326,18 @@ public final class LucarioModel {
         return LayerDefinition.create(data, 64, 32);
     }
 
+    /** Vanilla cape geometry (1.8.1 prototype): the cloak box (10x16x1) on the standard 64x32 cape
+     *  texture -- the standard mapping, so a real account cape renders with its own design. */
+    private static LayerDefinition capeLayer() {
+        MeshDefinition data = new MeshDefinition();
+        PartDefinition root = data.getRoot();
+        // Same box as the vanilla cloak: hangs DOWN from the pivot (the model frame is Y-flipped),
+        // 10 wide, 16 tall, 1 thick; uv (0,0).
+        root.addOrReplaceChild("cape", CubeListBuilder.create().texOffs(0, 0)
+                .addBox(-5.0F, 0.0F, -1.0F, 10.0F, 16.0F, 1.0F), PartPose.ZERO);
+        return LayerDefinition.create(data, 64, 32);
+    }
+
     /**
      * Sneaking from the model's own leg lengths: hip pitches forward by alpha, knee (leg*3) back by beta, foot levels out;
      * the body drops by crouchDrop and the torso leans forward. Works for both Lucario and Riolu (they share bone names).
@@ -346,6 +378,29 @@ public final class LucarioModel {
             float kneeBase = (float) Math.toRadians(vec(defs.get(knee), "rotation")[0]);
             d.sitPitch.put(hip, (float) (-Math.PI / 2.0 - hipBase - Math.toRadians(SIT_HIP_LIFT_DEG)));
             d.sitPitch.put(knee, (float) (Math.PI / 2.0 - kneeBase - midBase - Math.toRadians(SIT_KNEE_OPEN_DEG)));
+
+            // 1.8.1-pre7: fold the lower leg onto the shared reference silhouette (the constants
+            // above), so every form sits with the same extended legs. The shin's world pitch in
+            // the sit pose is -(SIT_HIP_LIFT + SIT_KNEE_OPEN) for every form -- the rest-base
+            // rotations cancel in the hip/knee formulas above -- so each correction below is a
+            // plain function of that bone's own rest base. Each child targets its pitch relative
+            // to its parent's corrected world pitch.
+            float shinWorld = -(float) Math.toRadians(SIT_HIP_LIFT_DEG + SIT_KNEE_OPEN_DEG);
+            String shin = hip + "4";
+            if (defs.containsKey(shin)) {
+                float shinBase = (float) Math.toRadians(vec(defs.get(shin), "rotation")[0]);
+                d.sitPitch.put(shin, (float) Math.toRadians(SIT_SHIN_WORLD_DEG) - shinWorld - shinBase);
+            }
+            String paw = "foot_" + side;
+            if (defs.containsKey(paw)) {
+                float pawBase = (float) Math.toRadians(vec(defs.get(paw), "rotation")[0]);
+                d.sitPitch.put(paw, (float) Math.toRadians(SIT_PAW_WORLD_DEG - SIT_SHIN_WORLD_DEG) - pawBase);
+            }
+            String toes = paw + "2";
+            if (defs.containsKey(toes)) {
+                float toesBase = (float) Math.toRadians(vec(defs.get(toes), "rotation")[0]);
+                d.sitPitch.put(toes, (float) Math.toRadians(SIT_TOES_WORLD_DEG - SIT_PAW_WORLD_DEG) - toesBase);
+            }
         }
     }
 
